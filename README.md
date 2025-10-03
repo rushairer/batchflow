@@ -6,7 +6,7 @@
 ![Coverage](https://img.shields.io/badge/coverage-75%25-brightgreen)
 ![GitHub Stars](https://img.shields.io/github/stars/rushairer/batchflow?style=social)
 
-一个高性能的 Go 批量 SQL 处理库，基于 `go-pipeline` 实现，支持多种数据库类型和冲突处理策略。
+一个高性能的 Go 通用批处理框架，基于 `go-pipeline` 实现，支持自定义驱动器和多种处理策略，可用于数据库、消息推送、API 调用等各种批量任务场景。
 
 
 ## 🏗️ 架构设计

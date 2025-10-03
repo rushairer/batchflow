@@ -10,8 +10,8 @@
 
 v1.0.0-alpha.0 是 BatchFlow 项目的首个 Alpha 版本，旨在提供：
 
-- 核心批量 SQL 处理功能
-- 多数据库驱动支持 (MySQL, PostgreSQL, SQLite, Redis)
+- 核心通用批量处理功能
+- 多种驱动支持 (MySQL, PostgreSQL, SQLite, Redis 等数据库，以及自定义驱动)
 - 高性能异步处理架构
 - 基础 API 和使用示例
 - 完整的测试覆盖

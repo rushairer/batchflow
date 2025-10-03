@@ -174,13 +174,14 @@ if err := validateRequest(req); err != nil {
 *基于重构后的架构设计 - 版本 v1.3.0*
 
 ### 架构概览
-BatchFlow 采用灵活的分层架构，通过统一的 `BatchExecutor` 接口支持不同类型的数据库：
+BatchFlow 采用灵活的分层架构，通过统一的 `BatchExecutor` 接口支持不同类型的数据源：
 
 - **SQL数据库**: 使用 `ThrottledBatchExecutor` + `BatchProcessor` + `SQLDriver`
 - **NoSQL数据库**: 直接实现 `BatchExecutor` 接口
+- **消息推送/API调用**: 直接实现 `BatchExecutor` 接口，支持各种自定义批量任务
 - **测试环境**: 使用 `MockExecutor` 直接实现
 
-### 添加新的SQL数据库支持
+### 添加新的SQL数据源支持
 
 1. **实现SQLDriver接口**:
    ```go
@@ -215,7 +216,7 @@ BatchFlow 采用灵活的分层架构，通过统一的 `BatchExecutor` 接口�
    }
    ```
 
-### 添加新的NoSQL数据库支持
+### 添加新的NoSQL数据源支持
 
 1. **直接实现BatchExecutor接口**:
    ```go
@@ -248,7 +249,7 @@ BatchFlow 采用灵活的分层架构，通过统一的 `BatchExecutor` 接口�
    }
    ```
 
-### 测试新的数据库驱动
+### 测试新的数据源驱动
 
 1. **单元测试**:
    ```go

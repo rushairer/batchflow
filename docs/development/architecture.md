@@ -2,7 +2,7 @@
 
 ## 🏗️ 整体架构概览
 
-BatchFlow 采用分层架构设计，通过统一的 `BatchExecutor` 接口支持多种数据库类型，同时为不同类型的数据库提供最适合的实现方式。
+BatchFlow 采用分层架构设计，通过统一的 `BatchExecutor` 接口支持多种数据源类型，同时为不同类型的数据源提供最适合的实现方式。
 
 ```mermaid
 flowchart TB
@@ -16,8 +16,8 @@ flowchart TB
 ## 🎯 核心设计原则
 
 ### 1. 统一接口，灵活实现
-- **BatchExecutor** 作为所有数据库驱动的统一接口
-- 不同类型数据库可选择最适合的实现方式
+- **BatchExecutor** 作为所有数据源驱动的统一接口
+- 不同类型数据源可选择最适合的实现方式
 - 保持API一致性的同时避免过度抽象
 
 ### 2. 可选的抽象层
@@ -33,10 +33,12 @@ flowchart TB
 
 ## 📊 实现方式对比
 
-| 数据库类型 | 实现方式 | 架构路径 | 优势 |
+| 数据源类型 | 实现方式 | 架构路径 | 优势 |
 |-----------|---------|---------|------|
 | **SQL数据库**<br>(MySQL/PostgreSQL/SQLite) | ThrottledBatchExecutor（可选限流 WithConcurrencyLimit） + BatchProcessor + SQLDriver | BatchFlow → ThrottledBatchExecutor → BatchProcessor → SQLDriver → DB | 代码复用、标准化、易扩展、可节流 |
 | **NoSQL数据库**<br>(Redis/MongoDB) | 直接实现BatchExecutor | BatchFlow → CustomExecutor → DB | 避免抽象层、性能优化、灵活性 |
+| **消息推送**<br>(钉钉机器人/微信/邮件) | 直接实现BatchExecutor | BatchFlow → CustomExecutor → API | 批量推送、错误重试、灵活配置 |
+| **API调用**<br>(REST/GraphQL) | 直接实现BatchExecutor | BatchFlow → CustomExecutor → HTTP | 批量请求、并发控制、统一处理 |
 | **测试环境** | MockExecutor | BatchFlow → MockExecutor → Memory | 快速测试、无依赖 |
 
 ## 🔧 详细架构分析
@@ -111,7 +113,7 @@ Database Client
 
 ## 🚀 扩展指南
 
-### 添加新的SQL数据库支持
+### 添加新的SQL数据源支持
 
 1. **实现SQLDriver接口**
 ```go
@@ -131,7 +133,7 @@ func NewTiDBBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *B
 }
 ```
 
-### 添加新的NoSQL数据库支持
+### 添加新的NoSQL数据源支持
 
 1. **直接实现BatchExecutor接口**
 ```go
