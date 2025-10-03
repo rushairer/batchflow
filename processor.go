@@ -85,7 +85,7 @@ func NewRedisBatchProcessor(client *redis.Client, driver RedisDriver) *RedisBatc
 
 // GenerateOperations 执行批量操作
 func (rp *RedisBatchProcessor) GenerateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (operations Operations, err error) {
-	s, ok := schema.(*SQLSchema)
+	s, ok := schema.(*Schema)
 	if !ok {
 		return nil, errors.New("schema is not a Schema")
 	}
