@@ -1,0 +1,254 @@
+name: Nightly Performance Tests
+
+on:
+  schedule:
+    # 每天 UTC 18:00 (北京时间 02:00) 运行夜间性能测试
+    - cron: '0 18 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  GO_VERSION: '1.23'
+
+jobs:
+  # 长时间性能测试
+  long-running-tests:
+    name: Long Running Performance Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [mysql, postgres, redis]
+        test-duration: [1800s, 3600s]  # 30分钟和1小时测试
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Set up database services
+      run: |
+        if [ "${{ matrix.database }}" == "mysql" ]; then
+          docker run -d --name mysql-service \
+            -e MYSQL_ROOT_PASSWORD=rootpass123 \
+            -e MYSQL_DATABASE=batchflow_test \
+            -e MYSQL_USER=testuser \
+            -e MYSQL_PASSWORD=testpass123 \
+            -p 3306:3306 \
+            mysql:8.0
+          
+          # 等待 MySQL 启动
+          for i in {60..0}; do
+            if docker exec mysql-service mysqladmin ping -u testuser -ptestpass123 &> /dev/null; then
+              break
+            fi
+            echo 'MySQL is starting up...'
+            sleep 2
+          done
+        elif [ "${{ matrix.database }}" == "postgres" ]; then
+          docker run -d --name postgres-service \
+            -e POSTGRES_DB=batchflow_test \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass123 \
+            -p 5432:5432 \
+            postgres:16-alpine
+          
+          # 等待 PostgreSQL 启动
+          for i in {60..0}; do
+            if docker exec postgres-service pg_isready -U testuser &> /dev/null; then
+              break
+            fi
+            echo 'PostgreSQL is starting up...'
+            sleep 2
+          done
+        elif [ "${{ matrix.database }}" == "redis" ]; then
+          docker run -d --name redis-service \
+            -p 6379:6379 \
+            redis:7-alpine
+          
+          # 等待 Redis 启动
+          for i in {30..0}; do
+            if docker exec redis-service redis-cli ping &> /dev/null; then
+              break
+            fi
+            echo 'Redis is starting up...'
+            sleep 2
+          done
+        fi
+
+    - name: Build test image
+      run: |
+        docker compose -f docker-compose.ci.yml build ${{ matrix.database }} ${{ matrix.database }}-test --no-cache
+
+    - name: Run long performance tests
+      run: |
+        # 夜间测试使用更高的负载配置
+        export TEST_DURATION=${{ matrix.test-duration }}
+        export CONCURRENT_WORKERS=10
+        export RECORDS_PER_WORKER=5000
+        export BATCH_SIZE=500
+        export BUFFER_SIZE=10000
+        export FLUSH_INTERVAL=50ms
+        
+        # 设置数据库连接
+        if [ "${{ matrix.database }}" == "mysql" ]; then
+          export MYSQL_DSN="testuser:testpass123@tcp(host.docker.internal:3306)/batchflow_test?parseTime=true&multiStatements=true"
+        elif [ "${{ matrix.database }}" == "postgres" ]; then
+          export POSTGRES_DSN="postgres://testuser:testpass123@host.docker.internal:5432/batchflow_test?sslmode=disable"
+        elif [ "${{ matrix.database }}" == "redis" ]; then
+          export REDIS_ADDR="host.docker.internal:6379"
+        fi
+        
+        # 运行测试
+        timeout 7200 docker compose -f docker-compose.ci.yml up ${{ matrix.database }} ${{ matrix.database }}-test --abort-on-container-exit --exit-code-from ${{ matrix.database }}-test || true
+
+    - name: Extract performance reports
+      run: |
+        docker create --name temp-${{ matrix.database }} batchflow-${{ matrix.database }}-test:latest
+        docker cp temp-${{ matrix.database }}:/app/reports ./nightly-reports-${{ matrix.database }}-${{ matrix.test-duration }} || true
+        docker rm temp-${{ matrix.database }} || true
+
+    - name: Upload performance reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: nightly-performance-${{ matrix.database }}-${{ matrix.test-duration }}
+        path: nightly-reports-${{ matrix.database }}-${{ matrix.test-duration }}/
+        retention-days: 90
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker stop mysql-service postgres-service redis-service || true
+        docker rm mysql-service postgres-service redis-service || true
+
+  # SQLite 压力测试（单独运行，因为预期会有失败）
+  sqlite-stress-test:
+    name: SQLite Stress Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build SQLite test image
+      run: |
+        docker compose -f docker-compose.ci.yml build sqlite sqlite-test --no-cache
+
+    - name: Run SQLite stress tests
+      run: |
+        # SQLite 压力测试 - 预期会有部分失败
+        export TEST_DURATION=1800s  # 30分钟
+        export CONCURRENT_WORKERS=5
+        export RECORDS_PER_WORKER=10000
+        export BATCH_SIZE=1000
+        export BUFFER_SIZE=20000
+        export FLUSH_INTERVAL=50ms
+        
+        # 运行测试并忽略退出码（SQLite 预期会有失败）
+        docker compose -f docker-compose.ci.yml up sqlite sqlite-test --abort-on-container-exit --exit-code-from sqlite-test || true
+
+    - name: Extract SQLite stress reports
+      run: |
+        docker create --name temp-sqlite batchflow-sqlite-test:latest
+        docker cp temp-sqlite:/app/reports ./nightly-sqlite-stress || true
+        docker rm temp-sqlite || true
+
+    - name: Upload SQLite stress reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: nightly-sqlite-stress-test
+        path: nightly-sqlite-stress/
+        retention-days: 90
+
+  # 性能趋势分析
+  performance-analysis:
+    name: Performance Trend Analysis
+    runs-on: ubuntu-latest
+    needs: [long-running-tests, sqlite-stress-test]
+    if: always()
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all performance reports
+      uses: actions/download-artifact@v4
+      with:
+        path: ./performance-data
+
+    - name: Generate performance analysis
+      run: |
+        echo "# Nightly Performance Analysis Report" > performance_analysis.md
+        echo "Generated on: $(date -u)" >> performance_analysis.md
+        echo "" >> performance_analysis.md
+        
+        echo "## Test Configuration" >> performance_analysis.md
+        echo "- Test Duration: 30min & 1hour" >> performance_analysis.md
+        echo "- Concurrent Workers: 10" >> performance_analysis.md
+        echo "- Records Per Worker: 5,000" >> performance_analysis.md
+        echo "- Batch Size: 500" >> performance_analysis.md
+        echo "- Buffer Size: 10,000" >> performance_analysis.md
+        echo "" >> performance_analysis.md
+        
+        echo "## Performance Summary" >> performance_analysis.md
+        echo "### MySQL Performance" >> performance_analysis.md
+        if [ "${{ needs.long-running-tests.result }}" == "success" ]; then
+          echo "✅ MySQL long-running tests completed successfully" >> performance_analysis.md
+        else
+          echo "❌ MySQL long-running tests encountered issues" >> performance_analysis.md
+        fi
+        echo "" >> performance_analysis.md
+        
+        echo "### PostgreSQL Performance" >> performance_analysis.md
+        if [ "${{ needs.long-running-tests.result }}" == "success" ]; then
+          echo "✅ PostgreSQL long-running tests completed successfully" >> performance_analysis.md
+        else
+          echo "❌ PostgreSQL long-running tests encountered issues" >> performance_analysis.md
+        fi
+        echo "" >> performance_analysis.md
+        
+        echo "### SQLite Stress Test" >> performance_analysis.md
+        echo "⚠️ SQLite stress test completed (failures expected due to architectural limitations)" >> performance_analysis.md
+        echo "" >> performance_analysis.md
+        
+        echo "## Recommendations" >> performance_analysis.md
+        echo "- Review detailed reports in artifacts for performance metrics" >> performance_analysis.md
+        echo "- Monitor RPS trends and data integrity rates" >> performance_analysis.md
+        echo "- SQLite limitations are expected and documented" >> performance_analysis.md
+
+    - name: Upload performance analysis
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-performance-analysis
+        path: performance_analysis.md
+        retention-days: 90
+
+  # 发送性能报告通知（可选）
+  notify-results:
+    name: Notify Performance Results
+    runs-on: ubuntu-latest
+    needs: [performance-analysis]
+    if: always() && github.repository_owner == 'rushairer'  # 仅在主仓库运行
+    steps:
+    - name: Download performance analysis
+      uses: actions/download-artifact@v4
+      with:
+        name: nightly-performance-analysis
+
+    - name: Create GitHub Issue for Performance Report
+      if: needs.long-running-tests.result == 'failure'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const analysis = fs.readFileSync('performance_analysis.md', 'utf8');
+          
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Nightly Performance Test Alert - ${new Date().toISOString().split('T')[0]}`,
+            body: `## Performance Test Alert\n\n${analysis}\n\n**Action Required**: Please review the performance test failures and investigate potential issues.`,
+            labels: ['performance', 'ci', 'investigation-needed']
+          });

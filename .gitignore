@@ -1,0 +1,64 @@
+# 测试覆盖率文件
+coverage.out
+coverage.html
+coverage.txt
+*.cover
+*.coverprofile
+test/reports
+
+# 构建产物
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+build/
+bin/
+
+# Go 相关
+vendor/
+*.mod.sum.bak
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# 备份文件
+*.bak
+*.backup
+test/integration/reports
+test_integration
+integration-test
+coverage_total.txt

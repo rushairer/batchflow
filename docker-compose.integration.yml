@@ -1,0 +1,268 @@
+services:
+  # PostgreSQL 16 - 专用于PostgreSQL压力测试
+  postgres:
+    image: postgres:16-alpine
+    container_name: batchflow-postgres-integration
+    environment:
+      POSTGRES_DB: batchflow_test
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./test/sql/postgres:/docker-entrypoint-initdb.d
+    # 优化配置 - 适合容器环境的资源分配
+    command: >
+      postgres 
+      -c shared_buffers=256MB
+      -c max_connections=200
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=8MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c max_wal_size=1GB
+      -c min_wal_size=80MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d batchflow_test"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+    networks:
+      - batchflow-network
+
+  # PostgreSQL 压力测试运行器
+  postgres-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    container_name: batchflow-postgres-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.test
+    environment:
+      - POSTGRES_DSN=postgres://testuser:testpass123@postgres:5432/batchflow_test?sslmode=disable
+      - TEST_TYPE=postgres
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./test/reports:/app/reports
+    networks:
+      - batchflow-network
+    command: ["./run-single-db-test.sh"]
+
+  # MySQL 8.0 - 专用于MySQL压力测试
+  mysql:
+    image: mysql:8.0-oracle
+    container_name: batchflow-mysql-integration
+    environment:
+      MYSQL_ROOT_PASSWORD: testpass123
+      MYSQL_DATABASE: batchflow_test
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./test/sql/mysql:/docker-entrypoint-initdb.d
+    # 高性能配置 - 给MySQL分配更多资源
+    command: >
+      --default-authentication-plugin=mysql_native_password 
+      --innodb-buffer-pool-size=1G
+      --innodb-redo-log-capacity=512M
+      --max-connections=500
+      --innodb-flush-log-at-trx-commit=2
+      --sync-binlog=0
+      --innodb-doublewrite=0
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptestpass123"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+    networks:
+      - batchflow-network
+
+  # MySQL 压力测试运行器
+  mysql-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    container_name: batchflow-mysql-test
+    depends_on:
+      mysql:
+        condition: service_healthy
+    env_file:
+      - .env.test
+    environment:
+      - MYSQL_DSN=testuser:testpass123@tcp(mysql:3306)/batchflow_test?parseTime=true&multiStatements=true
+      - TEST_TYPE=mysql
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./test/reports:/app/reports
+    networks:
+      - batchflow-network
+    command: ["./run-single-db-test.sh"]
+
+  # Redis 7.0 - 专用于Redis压力测试
+  redis:
+    image: redis:7.0-alpine
+    container_name: batchflow-redis-integration
+    environment:
+      # Redis 不使用传统的用户名密码，可以设置 AUTH 密码
+      REDIS_PASSWORD: testpass123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      # Redis 配置文件（如果需要自定义配置）
+      # - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    # 高性能配置 - Redis 优化参数
+    command: >
+      redis-server
+      --requirepass testpass123
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+      --appendonly yes
+      --appendfsync everysec
+      --tcp-keepalive 300
+      --timeout 0
+      --databases 16
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "testpass123", "ping"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+    networks:
+      - batchflow-network
+
+  # Redis 压力测试运行器
+  redis-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    container_name: batchflow-redis-test
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.test
+    environment:
+      # Redis DSN 格式：redis://[username:password@]host:port/database
+      - REDIS_DSN=redis://:testpass123@redis:6379/0
+      - TEST_TYPE=redis
+      # Redis 特有的测试参数
+      - REDIS_DB=0
+      - REDIS_POOL_SIZE=100
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./test/reports:/app/reports
+    networks:
+      - batchflow-network
+    command: ["./run-single-db-test.sh"]
+
+  # SQLite
+  sqlite:
+    image: alpine/sqlite:latest
+    container_name: batchflow-sqlite-integration
+    volumes:
+        - sqlite_data:/apps
+        - ./test/sql/sqlite/init.sql:/apps/init.sql
+    command: ["-cmd", ".read /apps/init.sql", "-cmd", ".system tail -f /dev/null", "/apps/test.db"]
+    healthcheck:
+      test: ["CMD", "sqlite3", "/apps/test.db", ".tables"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+    networks:
+      - batchflow-network
+
+  #SQLite 压力测试运行器 - 使用 SQLite 优化配置     
+  sqlite-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.sqlite.integration
+    container_name: batchflow-sqlite-test
+    depends_on:
+      sqlite:
+        condition: service_healthy
+    env_file:
+      - .env.sqlite.test  # 使用 SQLite 专用配置
+    environment:
+      - SQLITE_DSN=/apps/test.db
+      - TEST_TYPE=sqlite
+    ports:
+      - "8083:8080"
+    volumes:
+      - sqlite_data:/apps
+      - ./test/reports:/app/reports
+    networks:
+      - batchflow-network
+    command: ["./run-single-db-test.sh"]
+
+  # Prometheus - 指标收集服务
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: batchflow-prometheus
+    ports:
+      - "9091:9090"  # 使用 9091 避免与测试程序的 9090 冲突
+    volumes:
+      - ./test/integration/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - batchflow-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+
+  # Grafana - 可视化仪表板
+  grafana:
+    image: grafana/grafana:latest
+    container_name: batchflow-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./test/integration/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - batchflow-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+
+volumes:
+  postgres_data:
+  mysql_data:
+  redis_data:
+  sqlite_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  batchflow-network:
+    driver: bridge
