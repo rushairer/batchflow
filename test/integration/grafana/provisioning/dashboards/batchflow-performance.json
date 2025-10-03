@@ -176,7 +176,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_current_rps",
+          "expr": "batchflow_current_rps{database=~\"$database\",test_name=~\"$test_name\"}",
           "interval": "",
           "legendFormat": "{{database}} - {{test_name}}",
           "refId": "A"
@@ -246,7 +246,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_current_rps",
+          "expr": "batchflow_current_rps{database=~\"$database\",test_name=~\"$test_name\"}",
           "interval": "",
           "legendFormat": "{{database}}-{{test_name}}",
           "refId": "A"
@@ -348,7 +348,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "rate(batchflow_records_rate_total[5m])",
+          "expr": "rate(batchflow_records_rate_total{database=~\"$database\",test_name=~\"$test_name\"}[5m])",
           "interval": "",
           "legendFormat": "平均 RPS - {{database}} - {{test_name}}",
           "refId": "A"
@@ -358,7 +358,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "max_over_time(batchflow_current_rps[5m])",
+          "expr": "max_over_time(batchflow_current_rps{database=~\"$database\",test_name=~\"$test_name\"}[5m])",
           "interval": "",
           "legendFormat": "峰值 RPS - {{database}} - {{test_name}}",
           "refId": "B"
@@ -368,7 +368,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "avg_over_time(batchflow_current_rps[5m])",
+          "expr": "avg_over_time(batchflow_current_rps{database=~\"$database\",test_name=~\"$test_name\"}[5m])",
           "interval": "",
           "legendFormat": "平滑 RPS - {{database}} - {{test_name}}",
           "refId": "C"
@@ -457,7 +457,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "histogram_quantile(0.95, rate(batchflow_batch_process_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(batchflow_batch_process_duration_seconds_bucket{database=~\"$database\"}[5m]))",
           "interval": "",
           "legendFormat": "95th - {{database}} ({{batch_size}})",
           "refId": "A"
@@ -467,7 +467,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "histogram_quantile(0.50, rate(batchflow_batch_process_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(batchflow_batch_process_duration_seconds_bucket{database=~\"$database\"}[5m]))",
           "interval": "",
           "legendFormat": "50th - {{database}} ({{batch_size}})",
           "refId": "B"
@@ -556,7 +556,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_response_time_seconds{quantile=\"0.99\"}",
+          "expr": "batchflow_response_time_seconds{database=~\"$database\",quantile=\"0.99\"}",
           "interval": "",
           "legendFormat": "99th - {{database}} - {{operation}}",
           "refId": "A"
@@ -566,7 +566,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_response_time_seconds{quantile=\"0.9\"}",
+          "expr": "batchflow_response_time_seconds{database=~\"$database\",quantile=\"0.9\"}",
           "interval": "",
           "legendFormat": "90th - {{database}} - {{operation}}",
           "refId": "B"
@@ -576,7 +576,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_response_time_seconds{quantile=\"0.5\"}",
+          "expr": "batchflow_response_time_seconds{database=~\"$database\",quantile=\"0.5\"}",
           "interval": "",
           "legendFormat": "50th - {{database}} - {{operation}}",
           "refId": "C"
@@ -678,7 +678,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_memory_usage_mb{type=\"alloc\"}",
+          "expr": "batchflow_memory_usage_mb{database=~\"$database\",test_name=~\"$test_name\",type=\"alloc\"}",
           "interval": "",
           "legendFormat": "当前分配 - {{database}} - {{test_name}}",
           "refId": "A"
@@ -688,7 +688,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_memory_usage_mb{type=\"total_alloc\"}",
+          "expr": "batchflow_memory_usage_mb{database=~\"$database\",test_name=~\"$test_name\",type=\"total_alloc\"}",
           "interval": "",
           "legendFormat": "累计分配 - {{database}} - {{test_name}}",
           "refId": "B"
@@ -698,7 +698,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_memory_usage_mb{type=\"sys\"}",
+          "expr": "batchflow_memory_usage_mb{database=~\"$database\",test_name=~\"$test_name\",type=\"sys\"}",
           "interval": "",
           "legendFormat": "系统内存 - {{database}} - {{test_name}}",
           "refId": "C"
@@ -787,7 +787,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_concurrent_workers",
+          "expr": "batchflow_concurrent_workers{database=~\"$database\",test_name=~\"$test_name\"}",
           "interval": "",
           "legendFormat": "工作线程 - {{database}} - {{test_name}}",
           "refId": "A"
@@ -797,7 +797,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_active_connections",
+          "expr": "batchflow_active_connections{database=~\"$database\"}",
           "interval": "",
           "legendFormat": "活跃连接 - {{database}}",
           "refId": "B"
@@ -899,7 +899,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_data_integrity_rate * 100",
+          "expr": "batchflow_data_integrity_rate{database=~\"$database\",test_name=~\"$test_name\"} * 100",
           "interval": "",
           "legendFormat": "数据完整性 - {{database}} - {{test_name}}",
           "refId": "A"
@@ -988,7 +988,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "rate(batchflow_errors_total[5m])",
+          "expr": "rate(batchflow_errors_total{database=~\"$database\",test_name=~\"$test_name\"}[5m])",
           "interval": "",
           "legendFormat": "错误率 - {{database}} - {{error_type}}",
           "refId": "A"
@@ -1077,7 +1077,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_tests_run_total{result=\"success\"}",
+          "expr": "batchflow_tests_run_total{database=~\"$database\",test_name=~\"$test_name\",result=\"success\"}",
           "interval": "",
           "legendFormat": "成功 - {{database}} - {{test_name}}",
           "refId": "A"
@@ -1087,7 +1087,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_tests_run_total{result=\"failure\"}",
+          "expr": "batchflow_tests_run_total{database=~\"$database\",test_name=~\"$test_name\",result=\"failure\"}",
           "interval": "",
           "legendFormat": "失败 - {{database}} - {{test_name}}",
           "refId": "B"
@@ -1176,7 +1176,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "rate(batchflow_records_rate_total[5m])",
+          "expr": "rate(batchflow_records_rate_total{database=~\"$database\",test_name=~\"$test_name\"}[5m])",
           "interval": "",
           "legendFormat": "计算 RPS (rate) - {{database}} - {{test_name}}",
           "refId": "A"
@@ -1186,7 +1186,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "batchflow_current_rps",
+          "expr": "batchflow_current_rps{database=~\"$database\",test_name=~\"$test_name\"}",
           "interval": "",
           "legendFormat": "瞬时 RPS (gauge) - {{database}} - {{test_name}}",
           "refId": "B"
@@ -1288,7 +1288,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "avg by (database) (batchflow_current_rps)",
+          "expr": "avg by (database) (batchflow_current_rps{database=~\"$database\",test_name=~\"$test_name\"})",
           "interval": "",
           "legendFormat": "平均 RPS - {{database}}",
           "refId": "A"
@@ -1377,7 +1377,7 @@
             "type": "prometheus",
             "uid": null
           },
-          "expr": "sum by (database) (increase(batchflow_records_rate_total[5m]))",
+          "expr": "sum by (database) (increase(batchflow_records_rate_total{database=~\"$database\",test_name=~\"$test_name\"}[5m]))",
           "interval": "",
           "legendFormat": "处理记录数 - {{database}}",
           "refId": "A"
@@ -1454,12 +1454,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\"}[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
           "legendFormat": "p50 exec ({{database}}/{{test_name}})"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
           "legendFormat": "p95 exec ({{database}}/{{test_name}})"
         }
       ]
