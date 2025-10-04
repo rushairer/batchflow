@@ -44,7 +44,7 @@ func TestBatchFlowBasicOperations(t *testing.T) {
     batchFlow := batchflow.NewBatchFlow(ctx, 100, 10, 100*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+    schema := batchflow.NewSQLSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "name")
     
     // 提交测试数据
     for i := 0; i < 50; i++ {
@@ -71,7 +71,7 @@ func TestMySQLDriver(t *testing.T) {
     executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver)
     
     // 测试批量插入
-    schema := batchflow.NewSchema("test_users", batchflow.ConflictIgnoreOperationConfig, 
+    schema := batchflow.NewSQLSchema("test_users", batchflow.ConflictIgnoreOperationConfig, 
         "id", "name", "email")
     
     data := []map[string]any{
@@ -243,7 +243,7 @@ func TestRedisSpecificFeatures(t *testing.T) {
     defer batchFlow.Close()
     
     // 测试TTL设置
-    schema := batchflow.NewSchema("redis_test", batchflow.ConflictReplace,
+    schema := batchflow.NewSchema("redis_test",
         "cmd", "key", "value", "ex_flag", "ttl")
     
     request := batchflow.NewRequest(schema).
@@ -279,7 +279,7 @@ func BenchmarkRedisBatchInsert(b *testing.B) {
     batchFlow := batchflow.NewBatchFlow(ctx, 5000, 500, 50*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("benchmark", batchflow.ConflictReplace,
+    schema := batchflow.NewSchema("benchmark",
         "cmd", "key", "value")
     
     b.ResetTimer()
@@ -327,7 +327,7 @@ func TestStressTest(t *testing.T) {
     batchFlow := batchflow.NewBatchFlow(ctx, 10000, 500, 50*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("stress_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
+    schema := batchflow.NewSQLSchema("stress_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
     
     const totalRecords = 1000000
     startTime := time.Now()
@@ -371,7 +371,7 @@ func TestPrometheusMetrics(t *testing.T) {
     defer batchFlow.Close()
     
     // 执行一些操作
-    schema := batchflow.NewSchema("metrics_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
+    schema := batchflow.NewSQLSchema("metrics_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
     for i := 0; i < 500; i++ {
         request := batchflow.NewRequest(schema).
             SetInt64("id", int64(i)).

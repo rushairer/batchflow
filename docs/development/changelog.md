@@ -108,7 +108,7 @@
 batch := batchflow.NewMySQLBatchFlow(ctx, db, config)
 
 // 定义 Schema
-schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
 
 // 提交请求
 request := batchflow.NewRequest(schema).SetInt64("id", 1).SetString("name", "John")

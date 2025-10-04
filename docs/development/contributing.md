@@ -258,7 +258,7 @@ BatchFlow 采用灵活的分层架构，通过统一的 `BatchExecutor` 接口�
        schema := &batchflow.Schema{
            Name: "test_table",
            Columns:   []string{"id", "name"},
-           ConflictStrategy: batchflow.ConflictIgnoreOperationConfig,
+           ConflictStrategy: batchflow.ConflictIgnore,
        }
        data := []map[string]any{
            {"id": 1, "name": "test"},
@@ -285,7 +285,7 @@ BatchFlow 采用灵活的分层架构，通过统一的 `BatchExecutor` 接口�
        batch := NewNewDBBatchFlow(ctx, db, config)
        
        // 测试批量插入
-       schema := NewSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+       schema := NewSQLSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "name")
        request := NewRequest(schema).SetInt64("id", 1).SetString("name", "test")
        
        err := batch.Submit(ctx, request)

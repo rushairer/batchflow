@@ -297,9 +297,9 @@ SHOW ENGINE INNODB STATUS; -- MySQL
 1. **检查冲突处理模式**：
 ```go
 // 确保使用正确的冲突模式
-schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
+schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
 // 或
-schema := batchflow.NewSchema("users", batchflow.ConflictReplace, "id", "name", "email")
+schema := batchflow.NewSQLSchema("users", batchflow.ConflictReplaceOperationConfig, "id", "name", "email")
 ```
 
 2. **添加重试机制**：
@@ -346,10 +346,10 @@ func (r *LoggingMetricsReporter) ObserveExecuteDuration(tableName string, batchS
 1. **使用正确的冲突处理**：
 ```go
 // 对于可能重复的数据，使用 IGNORE 模式
-schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
+schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
 
 // 或使用 REPLACE 模式更新重复数据
-schema := batchflow.NewSchema("users", batchflow.ConflictReplace, "id", "name", "email")
+schema := batchflow.NewSQLSchema("users", batchflow.ConflictReplaceOperationConfig, "id", "name", "email")
 ```
 
 2. **添加唯一性检查**：

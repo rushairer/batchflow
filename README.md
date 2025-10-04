@@ -6,7 +6,7 @@
 ![Coverage](https://img.shields.io/badge/coverage-75%25-brightgreen)
 ![GitHub Stars](https://img.shields.io/github/stars/rushairer/batchflow?style=social)
 
-一个高性能的 Go 通用批处理框架，基于 `go-pipeline` 实现，支持自定义驱动器和多种处理策略，可用于数据库、消息推送、API 调用等各种批量任务场景。
+一个高性能的 Go 通用批处理框架，基于 [go-pipeline](https://github.com/rushairer/go-pipeline) 实现，支持自定义驱动器和多种处理策略，可用于数据库、消息推送、API 调用等各种批量任务场景。
 
 
 ## 🏗️ 架构设计
@@ -128,9 +128,9 @@ func main() {
     batch := batchflow.NewMySQLBatchFlow(ctx, db, config)
 
     // 3. 定义 schema（表结构定义，与数据库类型解耦）
-    userSchema := batchflow.NewSchema(
+    userSchema := batchflow.NewSQLSchema(
         "users",                    // 表名
-        batchflow.ConflictIgnoreOperationConfig,     // 冲突策略
+        batchflow.ConflictIgnoreOperationConfig,   // 冲突策略
         "id", "name", "email",      // 列名
     )
 
@@ -196,7 +196,6 @@ func main() {
     // 3. 定义 Redis schema（使用 SETEX 命令格式）
     cacheSchema := batchflow.NewSchema(
         "cache",                    // 逻辑表名
-        batchflow.ConflictReplace,    // Redis默认覆盖
         "cmd", "key", "ttl", "value", // SETEX 命令参数顺序
     )
 
@@ -241,7 +240,7 @@ func TestBatchFlow(t *testing.T) {
     batch, mockExecutor := batchflow.NewBatchFlowWithMock(ctx, config)
     
     // 定义测试schema
-    testSchema := batchflow.NewSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+    testSchema := batchflow.NewSQLSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "name")
     
     // 提交测试数据
     request := batchflow.NewRequest(testSchema).
@@ -477,13 +476,156 @@ const (
 ```
 
 ### Schema 设计
-```go
-// Schema专注于表结构定义，与数据库类型解耦
-userSchema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
-productSchema := batchflow.NewSchema("products", batchflow.ConflictUpdate, "id", "name", "price")
 
-// 同一个Schema可以在不同数据库类型间复用
+BatchFlow 提供了两种 Schema 类型，分别适用于不同的数据存储场景：
+
+#### 1. SQLSchema - 用于关系型数据库
+`NewSQLSchema` 专为 SQL 数据库设计，支持冲突处理策略：
+
+```go
+// SQL数据库场景 - 支持冲突策略
+userSchema := batchflow.NewSQLSchema(
+    "users",                                    // 表名
+    batchflow.ConflictIgnoreOperationConfig,    // 冲突策略
+    "id", "name", "email"                       // 字段列表
+)
+
+// 不同的冲突策略
+ignoreSchema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+replaceSchema := batchflow.NewSQLSchema("users", batchflow.ConflictReplaceOperationConfig, "id", "name") 
+updateSchema := batchflow.NewSQLSchema("users", batchflow.ConflictUpdateOperationConfig, "id", "name")
 ```
+
+**支持的冲突策略：**
+- `ConflictIgnoreOperationConfig` - 忽略冲突记录（INSERT IGNORE）
+- `ConflictReplaceOperationConfig` - 替换冲突记录（REPLACE INTO）
+- `ConflictUpdateOperationConfig` - 更新冲突记录（ON DUPLICATE KEY UPDATE）
+
+**适用场景：**
+- MySQL、PostgreSQL、SQLite 等关系型数据库
+- Mock 测试环境
+- 需要处理主键或唯一键冲突的场景
+
+#### 2. Schema - 用于非关系型数据库
+`NewSchema` 为通用数据存储设计，不包含 SQL 特定的冲突策略：
+
+```go
+// Redis场景 - 无需冲突策略
+cacheSchema := batchflow.NewSchema(
+    "cache",                        // 逻辑表名
+    "cmd", "key", "ttl", "value"    // 命令参数
+)
+
+// 自定义数据存储场景
+logSchema := batchflow.NewSchema("logs", "timestamp", "level", "message")
+```
+
+**适用场景：**
+- Redis、MongoDB 等 NoSQL 数据库
+- 消息队列、API 调用等自定义场景
+- 不需要冲突处理的简单数据存储
+
+#### 3. Schema 复用与设计原则
+
+```go
+// 同一个SQLSchema可以在不同SQL数据库间复用
+userSchema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
+
+// MySQL环境
+mysqlBatch := batchflow.NewMySQLBatchFlow(ctx, mysqlDB, config)
+mysqlBatch.Submit(ctx, batchflow.NewRequest(userSchema).SetInt64("id", 1))
+
+// PostgreSQL环境 - 复用相同Schema
+postgresBatch := batchflow.NewPostgreSQLBatchFlow(ctx, postgresDB, config)
+postgresBatch.Submit(ctx, batchflow.NewRequest(userSchema).SetInt64("id", 1))
+```
+
+#### 4. 选择指南
+
+**何时使用 NewSQLSchema：**
+```go
+// ✅ 关系型数据库
+schema := batchflow.NewSQLSchema("orders", batchflow.ConflictIgnoreOperationConfig, "id", "user_id", "amount")
+
+// ✅ 需要处理主键冲突
+schema := batchflow.NewSQLSchema("users", batchflow.ConflictReplaceOperationConfig, "id", "name", "email")
+
+// ✅ Mock测试环境
+schema := batchflow.NewSQLSchema("test_table", batchflow.ConflictIgnoreOperationConfig, "id", "data")
+```
+
+**何时使用 NewSchema：**
+```go
+// ✅ Redis命令
+schema := batchflow.NewSchema("redis_ops", "cmd", "key", "value")
+
+// ✅ 消息推送
+schema := batchflow.NewSchema("notifications", "user_id", "message", "channel")
+
+// ✅ 日志收集
+schema := batchflow.NewSchema("logs", "timestamp", "level", "content")
+```
+
+#### 5. 最佳实践
+
+**Schema 命名规范：**
+```go
+// 推荐：使用清晰的表名
+userSchema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+orderSchema := batchflow.NewSQLSchema("orders", batchflow.ConflictIgnoreOperationConfig, "id", "user_id")
+
+// 避免：模糊的命名
+dataSchema := batchflow.NewSQLSchema("data", batchflow.ConflictIgnoreOperationConfig, "col1", "col2")
+```
+
+**字段顺序设计：**
+```go
+// 推荐：主键在前，业务字段在后
+schema := batchflow.NewSQLSchema("products", batchflow.ConflictUpdateOperationConfig, 
+    "id",           // 主键
+    "name",         // 业务字段
+    "price",        // 业务字段
+    "updated_at"    // 时间戳
+)
+```
+
+**冲突策略选择：**
+```go
+// 数据导入场景 - 忽略重复
+importSchema := batchflow.NewSQLSchema("import_data", batchflow.ConflictIgnoreOperationConfig, "id", "data")
+
+// 缓存更新场景 - 替换旧数据
+cacheSchema := batchflow.NewSQLSchema("cache_table", batchflow.ConflictReplaceOperationConfig, "key", "value")
+
+// 增量更新场景 - 更新部分字段
+updateSchema := batchflow.NewSQLSchema("user_stats", batchflow.ConflictUpdateOperationConfig, "user_id", "login_count")
+```
+
+**跨数据库兼容性：**
+```go
+// 设计跨数据库兼容的Schema
+userSchema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, 
+    "id", "name", "email", "created_at")
+
+// 在不同数据库环境中使用相同Schema
+mysqlBatch.Submit(ctx, batchflow.NewRequest(userSchema).SetInt64("id", 1).SetString("name", "John"))
+postgresBatch.Submit(ctx, batchflow.NewRequest(userSchema).SetInt64("id", 1).SetString("name", "John"))
+sqliteBatch.Submit(ctx, batchflow.NewRequest(userSchema).SetInt64("id", 1).SetString("name", "John"))
+```
+
+#### 6. 核心差异总结
+
+| 特性 | NewSQLSchema | NewSchema |
+|------|-------------|-----------|
+| **冲突策略** | ✅ 支持（必需参数） | ❌ 不支持 |
+| **适用数据库** | SQL数据库（MySQL、PostgreSQL、SQLite） | NoSQL数据库（Redis、MongoDB等） |
+| **SQL生成** | ✅ 自动生成优化的SQL语句 | ❌ 不生成SQL |
+| **测试支持** | ✅ Mock测试环境 | ✅ 通用测试场景 |
+| **参数格式** | `(表名, 冲突策略, 字段...)` | `(逻辑名, 字段...)` |
+| **使用场景** | 关系型数据存储 | 命令式操作、消息队列等 |
+
+Schema 设计是 BatchFlow 的核心，正确选择 Schema 类型能够确保最佳的性能和兼容性。
+
 
 ### 生成的 SQL 示例
 
@@ -569,11 +711,11 @@ func main() {
     redisBatch := batchflow.NewRedisBatchFlow(ctx, redisClient, config)
     
     // 定义通用schema（可在不同数据库间复用）
-    userSchema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
-    productSchema := batchflow.NewSchema("products", batchflow.ConflictUpdate, "id", "name", "price")
+    userSchema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
+    productSchema := batchflow.NewSQLSchema("products", batchflow.ConflictUpdateOperationConfig, "id", "name", "price")
     
     // Redis专用schema（SETEX命令格式）
-    cacheSchema := batchflow.NewSchema("cache", batchflow.ConflictReplace, "cmd", "key", "ttl", "value")
+    cacheSchema := batchflow.NewSchema("cache", "cmd", "key", "ttl", "value")
     
     // 每个BatchFlow处理对应数据库的多个表
     

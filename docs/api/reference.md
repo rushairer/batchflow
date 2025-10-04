@@ -73,8 +73,11 @@ batch := batchflow.NewBatchFlow(ctx, 5000, 200, 100*time.Millisecond, executor)
 - 限流在 ExecuteBatch 入口，避免攒批后同时触发高并发
 - 指标上报与错误处理与不限流路径一致
 
-// 创建Schema
-func NewSchema(tableName string, conflictMode ConflictMode, fields ...string) *Schema
+// 创建基础Schema（用于Redis等不需要冲突策略的场景）
+func NewSchema(tableName string, fields ...string) *Schema
+
+// 创建SQL Schema（用于MySQL、PostgreSQL、SQLite等需要冲突策略的场景）
+func NewSQLSchema(tableName string, conflictMode ConflictMode, fields ...string) *Schema
 ```
 
 **冲突处理模式**：
@@ -323,7 +326,7 @@ func main() {
     defer batchFlow.Close()
     
     // 4. 定义Schema
-    schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig,
+    schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig,
         "id", "name", "email", "created_at")
     
     // 5. 批量提交数据
@@ -389,7 +392,7 @@ func redisBatchExample() {
     batchFlow := batchflow.NewBatchFlow(ctx, 5000, 500, 50*time.Millisecond, executor)
     
     // Redis Schema（使用命令格式）
-    schema := batchflow.NewSchema("redis_cache", batchflow.ConflictReplace,
+    schema := batchflow.NewSchema("redis_cache",
         "cmd", "key", "value", "ex_flag", "ttl")
     
     // 批量SET操作

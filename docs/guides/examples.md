@@ -34,7 +34,7 @@ func main() {
     defer batchFlow.Close()
     
     // 定义表结构
-    schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig,
+    schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig,
         "id", "name", "email", "age", "created_at")
     
     // 批量插入10000条记录
@@ -74,7 +74,7 @@ func postgresqlExample() {
     defer batchFlow.Close()
     
     // PostgreSQL特定Schema
-    schema := batchflow.NewSchema("products", batchflow.ConflictUpdate,
+    schema := batchflow.NewSQLSchema("products", batchflow.ConflictUpdateOperationConfig,
         "id", "name", "price", "category", "updated_at")
     
     // 批量更新产品信息
@@ -114,7 +114,7 @@ func sqliteExample() {
     defer batchFlow.Close()
     
     // 创建日志表
-    schema := batchflow.NewSchema("logs", batchflow.ConflictIgnoreOperationConfig,
+    schema := batchflow.NewSQLSchema("logs", batchflow.ConflictIgnoreOperationConfig,
         "id", "level", "message", "timestamp")
     
     // 批量插入日志
@@ -149,7 +149,7 @@ func redisExample() {
     defer batchFlow.Close()
     
     // Redis命令Schema
-    schema := batchflow.NewSchema("cache", batchflow.ConflictReplace,
+    schema := batchflow.NewSchema("cache",
         "cmd", "key", "value", "ex_flag", "ttl")
     
     // 批量缓存用户会话
@@ -195,7 +195,7 @@ func withPrometheusMonitoring() {
     defer batchFlow.Close()
     
     // 执行批量操作（自动收集指标）
-    schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
+    schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name", "email")
     
     for i := 0; i < 50000; i++ {
         request := batchflow.NewRequest(schema).
@@ -361,7 +361,7 @@ func concurrentInsert() {
     batchFlow := batchflow.NewBatchFlow(ctx, 10000, 500, 100*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("concurrent_test", batchflow.ConflictIgnoreOperationConfig,
+    schema := batchflow.NewSQLSchema("concurrent_test", batchflow.ConflictIgnoreOperationConfig,
         "id", "worker_id", "data", "created_at")
     
     var wg sync.WaitGroup
@@ -432,7 +432,7 @@ func batchInsertUsers() {
     batchFlow := batchflow.NewBatchFlow(ctx, 5000, 200, 100*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("users", batchflow.ConflictIgnoreOperationConfig,
+    schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig,
         "id", "name", "email", "phone", "address", "birthday")
     
     for _, user := range users {
@@ -490,7 +490,7 @@ func withProgressMonitoring() {
     batchFlow := batchflow.NewBatchFlow(ctx, 5000, 200, 100*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("progress_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
+    schema := batchflow.NewSQLSchema("progress_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
     
     for i := 0; i < totalRecords; i++ {
         request := batchflow.NewRequest(schema).
@@ -513,7 +513,7 @@ func withRetryMechanism() {
     batchFlow := batchflow.NewBatchFlow(ctx, 5000, 200, 100*time.Millisecond, executor)
     defer batchFlow.Close()
     
-    schema := batchflow.NewSchema("retry_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
+    schema := batchflow.NewSQLSchema("retry_test", batchflow.ConflictIgnoreOperationConfig, "id", "data")
     
     for i := 0; i < 10000; i++ {
         request := batchflow.NewRequest(schema).
