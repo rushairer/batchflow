@@ -44,9 +44,9 @@ jobs:
     - name: Validate version format
       run: |
         VERSION="${{ steps.get-version.outputs.version }}"
-        if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+        if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[0-9]+)*)?$ ]]; then
           echo "Invalid version format: $VERSION"
-          echo "Expected format: v1.0.0 or v1.0.0-beta"
+          echo "Expected format: v1.0.0, v1.0.0-beta, v1.0.0-beta.0, v1.0.0-alpha.1, etc."
           exit 1
         fi
 
