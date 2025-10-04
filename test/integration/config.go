@@ -45,8 +45,8 @@ func loadConfig() TestConfig {
 		BufferSize:        uint32(parseIntEnv("BUFFER_SIZE", 5000)),
 		FlushInterval:     parseDurationEnv("FLUSH_INTERVAL", 100*time.Millisecond),
 		// Prometheus 配置
-		PrometheusEnabled: parseBoolEnv("PROMETHEUS_ENABLED", true), // 默认启用
-		PrometheusPort:    parseIntEnv("PROMETHEUS_PORT", 8080),     // 默认端口 8080
+		PrometheusEnabled: parseBoolEnv("PROMETHEUS_ENABLED", false), // 默认关闭
+		PrometheusPort:    parseIntEnv("PROMETHEUS_PORT", 8080),      // 默认端口 8080
 	}
 
 	log.Printf("📋 已加载测试配置：")

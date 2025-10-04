@@ -131,7 +131,7 @@ jobs:
     - name: Run ${{ matrix.database }} integration tests
       run: |
         # 发布前使用标准配置进行完整测试
-        export TEST_DURATION=600s  # 10分钟测试
+        export TEST_DURATION=1800s  # 30分钟测试
         export CONCURRENT_WORKERS=5
         export RECORDS_PER_WORKER=2000
         export BATCH_SIZE=200

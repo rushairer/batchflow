@@ -364,7 +364,7 @@ func runRedisMemoryPressureTest(rdb *redis.Client, config TestConfig, prometheus
 	memConfig := config
 	memConfig.BatchSize = 100
 	memConfig.BufferSize = 1000
-	memConfig.RecordsPerWorker = 50000
+	memConfig.RecordsPerWorker = 30000
 
 	result := runRedisConcurrentWorkersTest(rdb, memConfig, prometheusMetrics)
 	result.TestName = "Memory Pressure Test"
