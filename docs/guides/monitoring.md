@@ -105,6 +105,10 @@ func main() {
 常见原因标签（reason）
 - deadlock、lock_timeout、timeout、connection、io、context、non_retryable
 
+提示：
+- 默认分类器会将 context.Canceled 与 context.DeadlineExceeded 计入 final:context（不可重试）。
+- 若使用处理器的 WithTimeoutCause 并在超时返回 cause（如 "execute batch timeout"），你可以在自定义分类器中将其归为 retry:processor_timeout，以区分并观测处理器内部的短暂性超时。
+
 ### PromQL 示例
 ```promql
 # 重试速率（按表和原因）

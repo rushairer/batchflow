@@ -23,9 +23,7 @@ func TestConstructors_SQL_WithCustomDriver(t *testing.T) {
 	var nilDB *sql.DB
 
 	// 直接走顶层封装的 WithDriver 构造，验证不会 panic
-	_ = batchflow.NewMySQLBatchFlowWithDriver(ctx, nilDB, cfg, mockDriver)
-	_ = batchflow.NewPostgreSQLBatchFlowWithDriver(ctx, nilDB, cfg, mockDriver)
-	_ = batchflow.NewSQLiteBatchFlowWithDriver(ctx, nilDB, cfg, mockDriver)
+	_ = batchflow.NewSQLBatchFlowWithDriver(ctx, nilDB, cfg, mockDriver)
 }
 
 func TestConstructors_Redis_WithCustomDriver(t *testing.T) {

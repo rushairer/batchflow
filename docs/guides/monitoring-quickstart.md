@@ -41,6 +41,59 @@ defer bs.Close()
 - 批大小分布
 - 队列长度、执行并发度、在途批次数
 
+### Prometheus 查询示例（可直接复制到 Grafana）
+
+- 各表按原因的重试速率 Top5（近5m）
+```
+topk(5, sum by (table, type) (rate(batchflow_errors_total{type=~"retry:.*"}[5m])))
+```
+
+- 最终失败原因分布（近5m）
+```
+sum by (type) (rate(batchflow_errors_total{type=~"final:.*"}[5m]))
+```
+
+- 成功率（近5m）
+```
+sum(rate(batchflow_batches_total{status="success"}[5m]))
+/
+sum(rate(batchflow_batches_total[5m]))
+```
+
+- 执行耗时 P95（包含重试与退避）
+```
+histogram_quantile(0.95, sum by (table, le) (rate(batchflow_execute_duration_seconds_bucket[5m])))
+```
+
+- 区分上下文取消与内部超时（若分类器打点为 final:context / retry:processor_timeout）
+```
+sum(rate(batchflow_errors_total{type="final:context"}[5m]))                 // 外层 ctx 取消/超时
+sum(rate(batchflow_errors_total{type="retry:processor_timeout"}[5m]))      // 处理器内部超时（基于 cause）
+```
+
+- 重试占比按表统计（近15m）
+```
+sum by (table) (rate(batchflow_errors_total{type=~"retry:.*"}[15m]))
+/
+sum by (table) (rate(batchflow_errors_total{type=~"(retry:|final:).*"}[15m]))
+```
+
+- 单表尾部放大监控（P99）
+```
+histogram_quantile(0.99, sum by (table, le) (rate(batchflow_execute_duration_seconds_bucket[5m])))
+```
+
+### Grafana 面板与变量说明
+
+- 面板位置（示例）：test/integration/grafana/provisioning/dashboards/batchflow-performance.json
+- 变量建议：
+  - database：数据库类型（mysql/postgres/sqlite/redis）
+  - table：表名/逻辑名
+  - test_name：测试或业务分组名
+- 使用提示：
+  - 若你自定义了 Retry Classifier（如将内部超时标记为 retry:processor_timeout），请在图表查询中相应筛选该标签值。
+  - ObserveExecuteDuration 指标已包含重试与退避时间，查看 P95/P99 可评估重试对尾部延迟的影响。
+
 ## 常见问题排查
 
 - 指标没有数据：

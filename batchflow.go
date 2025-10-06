@@ -128,117 +128,6 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 	return batchFlow
 }
 
-// PipelineConfig 管道配置
-type PipelineConfig struct {
-	BufferSize    uint32
-	FlushSize     uint32
-	FlushInterval time.Duration
-
-	// Step 2: 可选重试配置（零值=关闭，向后兼容）
-	Retry RetryConfig
-}
-
-// NewMySQLBatchFlow 创建MySQL BatchFlow实例（使用默认Driver）
-/*
-内部架构：BatchFlow -> ThrottledBatchExecutor -> SQLBatchProcessor -> MySQLDriver -> MySQL
-*/
-// 这是推荐的使用方式，使用MySQL优化的默认配置
-func NewMySQLBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *BatchFlow {
-	executor := NewSQLThrottledBatchExecutorWithDriver(db, DefaultMySQLDriver)
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewMySQLBatchFlowWithDriver 创建MySQL BatchFlow实例（使用自定义Driver）
-/*
-内部架构：BatchFlow -> ThrottledBatchExecutor -> SQLBatchProcessor -> CustomDriver -> MySQL
-*/
-// 适用于需要自定义SQL生成逻辑的场景（如TiDB优化）
-func NewMySQLBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineConfig, driver SQLDriver) *BatchFlow {
-	executor := NewSQLThrottledBatchExecutorWithDriver(db, driver)
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewPostgreSQLBatchFlow 创建PostgreSQL BatchFlow实例（使用默认Driver）
-func NewPostgreSQLBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *BatchFlow {
-	executor := NewSQLThrottledBatchExecutorWithDriver(db, DefaultPostgreSQLDriver)
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewPostgreSQLBatchFlowWithDriver 创建PostgreSQL BatchFlow实例（使用自定义Driver）
-func NewPostgreSQLBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineConfig, driver SQLDriver) *BatchFlow {
-	executor := NewSQLThrottledBatchExecutorWithDriver(db, driver)
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewSQLiteBatchFlow 创建SQLite BatchFlow实例（使用默认Driver）
-func NewSQLiteBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *BatchFlow {
-	executor := NewSQLThrottledBatchExecutorWithDriver(db, DefaultSQLiteDriver)
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewSQLiteBatchFlowWithDriver 创建SQLite BatchFlow实例（使用自定义Driver）
-func NewSQLiteBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineConfig, driver SQLDriver) *BatchFlow {
-	executor := NewSQLThrottledBatchExecutorWithDriver(db, driver)
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewRedisBatchFlow 创建Redis BatchFlow实例
-/*
-内部架构（NoSQL）：BatchFlow -> ThrottledBatchExecutor -> RedisBatchProcessor -> RedisDriver -> Redis
-说明：NoSQL 路径不使用 SQL 抽象层，直接生成并执行 Redis 命令；仍可启用 WithConcurrencyLimit 控制批次并发。
-*/
-func NewRedisBatchFlow(ctx context.Context, db *redisV9.Client, config PipelineConfig) *BatchFlow {
-	executor := NewThrottledBatchExecutor(NewRedisBatchProcessor(db, DefaultRedisPipelineDriver))
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-func NewRedisBatchFlowWithDriver(ctx context.Context, db *redisV9.Client, config PipelineConfig, driver RedisDriver) *BatchFlow {
-	executor := NewThrottledBatchExecutor(NewRedisBatchProcessor(db, driver))
-	if config.Retry.Enabled {
-		executor.WithRetryConfig(config.Retry)
-	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
-}
-
-// NewBatchFlowWithMock 使用模拟执行器创建 BatchFlow 实例（用于测试）
-// 内部架构：BatchFlow -> MockExecutor（直接实现BatchExecutor，无真实数据库操作）
-// 适用于单元测试，不依赖真实数据库连接
-func NewBatchFlowWithMock(ctx context.Context, config PipelineConfig) (*BatchFlow, *MockExecutor) {
-	mockExecutor := NewMockExecutor()
-	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
-	return batchFlow, mockExecutor
-}
-
-// NewBatchFlowWithMockDriver 使用模拟执行器创建 BatchFlow 实例（测试特定SQLDriver）
-// 内部架构：BatchFlow -> MockExecutor（模拟ThrottledBatchExecutor行为，测试SQLDriver逻辑）
-// 适用于测试自定义SQLDriver的SQL生成逻辑
-func NewBatchFlowWithMockDriver(ctx context.Context, config PipelineConfig, sqlDriver SQLDriver) (*BatchFlow, *MockExecutor) {
-	mockExecutor := NewMockExecutorWithDriver(sqlDriver)
-	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
-	return batchFlow, mockExecutor
-}
-
 // ErrorChan 获取错误通道
 func (b *BatchFlow) ErrorChan(size int) <-chan error {
 	return b.pipeline.ErrorChan(size)
@@ -284,4 +173,97 @@ func (b *BatchFlow) Submit(ctx context.Context, request *Request) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// PipelineConfig 管道配置
+type PipelineConfig struct {
+	BufferSize    uint32
+	FlushSize     uint32
+	FlushInterval time.Duration
+
+	// 可选重试配置（零值=关闭，向后兼容）
+	Retry RetryConfig
+
+	// 可选超时配置（零值=关闭，向后兼容）
+	Timeout time.Duration
+
+	// 可选指标上报器（零值=关闭，向后兼容）
+	MetricsReporter MetricsReporter
+}
+
+// NewSQLBatchFlow 创建SQL BatchFlow实例（使用自定义Driver）
+func NewSQLBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineConfig, driver SQLDriver) *BatchFlow {
+	processor := NewSQLBatchProcessor(db, driver)
+	if config.Timeout > 0 {
+		processor.WithTimeout(config.Timeout)
+	}
+	executor := NewThrottledBatchExecutor(processor)
+	if config.Retry.Enabled {
+		executor.WithRetryConfig(config.Retry)
+	}
+	if config.MetricsReporter != nil {
+		executor.WithMetricsReporter(config.MetricsReporter)
+	}
+	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
+}
+
+// NewMySQLBatchFlow 创建MySQL BatchFlow实例（使用默认Driver）
+/*
+内部架构：BatchFlow -> ThrottledBatchExecutor -> SQLBatchProcessor -> MySQLDriver -> MySQL
+*/
+// 这是推荐的使用方式，使用MySQL优化的默认配置
+func NewMySQLBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *BatchFlow {
+	return NewSQLBatchFlowWithDriver(ctx, db, config, DefaultMySQLDriver)
+}
+
+// NewPostgreSQLBatchFlow 创建PostgreSQL BatchFlow实例（使用默认Driver）
+func NewPostgreSQLBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *BatchFlow {
+	return NewSQLBatchFlowWithDriver(ctx, db, config, DefaultPostgreSQLDriver)
+}
+
+// NewSQLiteBatchFlow 创建SQLite BatchFlow实例（使用默认Driver）
+func NewSQLiteBatchFlow(ctx context.Context, db *sql.DB, config PipelineConfig) *BatchFlow {
+	return NewSQLBatchFlowWithDriver(ctx, db, config, DefaultSQLiteDriver)
+}
+
+// NewRedisBatchFlow 创建Redis BatchFlow实例
+/*
+内部架构（NoSQL）：BatchFlow -> ThrottledBatchExecutor -> RedisBatchProcessor -> RedisDriver -> Redis
+说明：NoSQL 路径不使用 SQL 抽象层，直接生成并执行 Redis 命令；仍可启用 WithConcurrencyLimit 控制批次并发。
+*/
+func NewRedisBatchFlow(ctx context.Context, db *redisV9.Client, config PipelineConfig) *BatchFlow {
+	return NewRedisBatchFlowWithDriver(ctx, db, config, DefaultRedisPipelineDriver)
+}
+
+func NewRedisBatchFlowWithDriver(ctx context.Context, db *redisV9.Client, config PipelineConfig, driver RedisDriver) *BatchFlow {
+	processor := NewRedisBatchProcessor(db, driver)
+	if config.Timeout > 0 {
+		processor.WithTimeout(config.Timeout)
+	}
+	executor := NewThrottledBatchExecutor(processor)
+	if config.Retry.Enabled {
+		executor.WithRetryConfig(config.Retry)
+	}
+	if config.MetricsReporter != nil {
+		executor.WithMetricsReporter(config.MetricsReporter)
+	}
+	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
+}
+
+// NewBatchFlowWithMock 使用模拟执行器创建 BatchFlow 实例（用于测试）
+// 内部架构：BatchFlow -> MockExecutor（直接实现BatchExecutor，无真实数据库操作）
+// 适用于单元测试，不依赖真实数据库连接
+func NewBatchFlowWithMock(ctx context.Context, config PipelineConfig) (*BatchFlow, *MockExecutor) {
+	mockExecutor := NewMockExecutor()
+	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
+	return batchFlow, mockExecutor
+}
+
+// NewBatchFlowWithMockDriver 使用模拟执行器创建 BatchFlow 实例（测试特定SQLDriver）
+// 内部架构：BatchFlow -> MockExecutor（模拟ThrottledBatchExecutor行为，测试SQLDriver逻辑）
+// 适用于测试自定义SQLDriver的SQL生成逻辑
+func NewBatchFlowWithMockDriver(ctx context.Context, config PipelineConfig, sqlDriver SQLDriver) (*BatchFlow, *MockExecutor) {
+	mockExecutor := NewMockExecutorWithDriver(sqlDriver)
+	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
+	return batchFlow, mockExecutor
 }

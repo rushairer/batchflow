@@ -481,6 +481,54 @@ defer cancel()
 defer batchFlow.Close() // 确保所有数据都被刷新
 ```
 
+## ⏱️ 超时与重试策略
+
+- 默认重试分类器：context.Canceled 与 context.DeadlineExceeded 均被判定为不可重试（final:context）。
+- 处理器行为：
+  - SQL/Redis 处理器在 ExecuteOperations 内部使用 context.WithTimeoutCause 包裹子 ctx。
+  - 当子 ctx 达到超时，驱动返回 context.DeadlineExceeded；处理器会读取 context.Cause(ctx)，并将其作为返回错误（如 "execute batch timeout"），便于上层分类与观测。
+- 如需对“处理器内部超时”进行重试：请自定义 RetryConfig.Classifier，将带有该 cause 的错误判定为可重试，并合理设置退避。
+- 注意区分：
+  - 外层 ctx 取消/超时（调用方主动取消或上游时限到达）：不应重试。
+  - 处理器内部短暂性超时（锁等待、瞬时抖动）：可按策略重试并配合指数退避。
+
+示例（自定义分类器片段）：
+```go
+exec.WithRetryConfig(batchflow.RetryConfig{
+    Enabled:     true,
+    MaxAttempts: 3,
+    BackoffBase: 20*time.Millisecond,
+    Classifier: func(err error) (bool, string) {
+        if errors.Is(err, context.Canceled) {
+            return false, "canceled"
+        }
+        if errors.Is(err, context.DeadlineExceeded) {
+            // 默认不可重试；若使用处理器 cause，可按需放开
+            return false, "deadline"
+        }
+        if strings.Contains(strings.ToLower(err.Error()), "execute batch timeout") {
+            return true, "processor_timeout"
+        }
+        return defaultRetryClassifier(err)
+    },
+})
+```
+
+## 🧰 处理器实现要点（与失败快速退出）
+
+- SQL 执行：
+  - 增加空 operations 校验（len(operations) < 1 返回 "empty operations"）。
+- Redis 执行：
+  - 大批量时在循环内检测 ctx（例如每次或每 N 次迭代检查 ctx.Err()），在取消/超时后快速返回，避免在超大 operations 上浪费迭代成本。
+
+建议：若 operations 极大，可按“每 32/64 次迭代”检查一次 ctx，降低分支开销且保持取消响应性。
+
+## 🧪 errors.Join 的判断建议
+
+- 存在性判断用 errors.Is：判断是否包含某类哨兵错误（如 context.DeadlineExceeded、io.EOF）。
+- 提取具体类型用 errors.As：解包第一个匹配的具体类型（如 *net.OpError）。
+- errors.Join 支持多错误链路，Is/As 会遍历所有子错误进行匹配。
+
 ## 📚 相关文档
 
 - [EXAMPLES.md](EXAMPLES.md) - 更多使用示例

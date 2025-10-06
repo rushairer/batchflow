@@ -2,7 +2,7 @@ package batchflow
 
 import "time"
 
-// MetricsConfig 指标导出配置（Step 1：骨架；默认关闭采样）
+// MetricsConfig 指标导出配置（骨架；默认关闭采样）
 type MetricsConfig struct {
 	Enabled bool
 }

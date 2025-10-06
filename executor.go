@@ -57,7 +57,7 @@ type ThrottledBatchExecutor struct {
 	metricsReporter MetricsReporter // 性能指标报告器
 	semaphore       chan struct{}   // 可选信号量，用于限制 ExecuteBatch 并发
 
-	// Step 2: 重试配置（默认关闭）
+	// 重试配置（默认关闭）
 	retryEnabled     bool
 	retryMaxAttempts int
 	retryBackoffBase time.Duration
@@ -125,6 +125,12 @@ func (e *ThrottledBatchExecutor) WithRetryConfig(cfg RetryConfig) *ThrottledBatc
 	return e
 }
 
+/*
+默认重试分类器策略说明：
+- 对调用方外层 ctx 的取消/超时（context.Canceled/context.DeadlineExceeded）判为不可重试（final:context）。
+- 可通过 RetryConfig.Classifier 自定义策略，例如将“处理器内部超时（由处理器用 WithTimeoutCause 附带 cause）”判为可重试。
+- 建议对可重试错误使用指数退避与抖动，避免热点重试风暴。
+*/
 func defaultRetryClassifier(err error) (bool, string) {
 	if err == nil {
 		return false, ""

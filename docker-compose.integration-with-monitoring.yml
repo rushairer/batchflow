@@ -49,6 +49,7 @@ services:
     environment:
       - POSTGRES_DSN=postgres://testuser:testpass123@postgres:5432/batchflow_test?sslmode=disable
       - TEST_TYPE=postgres
+      - PROMETHEUS_ENABLED=true
     ports:
       - "8080:8080"
     volumes:
@@ -102,6 +103,7 @@ services:
     environment:
       - MYSQL_DSN=testuser:testpass123@tcp(mysql:3306)/batchflow_test?parseTime=true&multiStatements=true
       - TEST_TYPE=mysql
+      - PROMETHEUS_ENABLED=true
     ports:
       - "8081:8080"
     volumes:
@@ -161,6 +163,7 @@ services:
       # Redis 特有的测试参数
       - REDIS_DB=0
       - REDIS_POOL_SIZE=100
+      - PROMETHEUS_ENABLED=true
     ports:
       - "8082:8080"
     volumes:
@@ -199,6 +202,7 @@ services:
     environment:
       - SQLITE_DSN=/apps/test.db
       - TEST_TYPE=sqlite
+      - PROMETHEUS_ENABLED=true
     ports:
       - "8083:8080"
     volumes:
@@ -208,11 +212,60 @@ services:
       - batchflow-network
     command: ["./run-single-db-test.sh"]
 
+  # Prometheus - 指标收集服务
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: batchflow-prometheus
+    ports:
+      - "9091:9090"  # 使用 9091 避免与测试程序的 9090 冲突
+    volumes:
+      - ./test/integration/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - batchflow-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+
+  # Grafana - 可视化仪表板
+  grafana:
+    image: grafana/grafana:latest
+    container_name: batchflow-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./test/integration/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - batchflow-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      timeout: 10s
+      retries: 5
+      interval: 30s
+
 volumes:
   postgres_data:
   mysql_data:
   redis_data:
   sqlite_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   batchflow-network:

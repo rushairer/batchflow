@@ -141,6 +141,33 @@ if err != nil {
 }
 ```
 
+### PostgreSQL: "canceling statement due to user request"
+
+**症状（日志）**：
+```
+ERROR:  canceling statement due to user request
+STATEMENT:  INSERT INTO ...
+```
+
+**成因**：
+- 客户端在 ExecContext 使用的 ctx 被取消/超时（包括处理器内的 WithTimeout/WithTimeoutCause 到期），驱动向 PG 发送 CancelRequest，PG 侧记录该 ERROR。
+- 或命中服务端的 statement_timeout，服务端主动取消语句并记录日志。
+
+**确认方式**：
+- 应用侧错误多为 context.DeadlineExceeded 或驱动返回的取消错误文本；
+- 若处理器采用 WithTimeoutCause 并将 cause 返回（如 "execute batch timeout"），可据此区分“内部超时”。
+
+**处理建议**：
+- 校准超时：避免客户端/服务端双重过短的超时叠加，导致频繁取消与日志噪音。
+- 重试策略：默认对超时不重试；若确需对短暂性内部超时重试，请自定义分类器并使用指数退避。
+- 降噪：必要时调低 PG 的 log_min_error_statement 或调整 log_statement，减少语句回显。
+
+### errors.Join 判断建议
+
+- 使用 errors.Is 判断合并错误中是否“包含”某类哨兵错误。
+- 使用 errors.As 提取具体错误类型实例并访问其字段。
+- 如需定位多个匹配项，可遍历 err.(interface{ Unwrap() []error }).Unwrap() 返回的子错误逐个判断。
+
 ### 2. 性能问题
 
 #### 低 RPS 问题
