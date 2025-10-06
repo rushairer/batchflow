@@ -189,6 +189,9 @@ type PipelineConfig struct {
 
 	// 可选指标上报器（零值=关闭，向后兼容）
 	MetricsReporter MetricsReporter
+
+	// 可选并发限制（零值=无限制，向后兼容）
+	ConcurrencyLimit int
 }
 
 // NewSQLBatchFlow 创建SQL BatchFlow实例（使用自定义Driver）
@@ -203,6 +206,9 @@ func NewSQLBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineC
 	}
 	if config.MetricsReporter != nil {
 		executor.WithMetricsReporter(config.MetricsReporter)
+	}
+	if config.ConcurrencyLimit > 0 {
+		executor.WithConcurrencyLimit(config.ConcurrencyLimit)
 	}
 	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
 }
@@ -246,6 +252,9 @@ func NewRedisBatchFlowWithDriver(ctx context.Context, db *redisV9.Client, config
 	}
 	if config.MetricsReporter != nil {
 		executor.WithMetricsReporter(config.MetricsReporter)
+	}
+	if config.ConcurrencyLimit > 0 {
+		executor.WithConcurrencyLimit(config.ConcurrencyLimit)
 	}
 	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
 }

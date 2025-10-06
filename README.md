@@ -45,8 +45,8 @@ func main() {
     // 2. 创建MySQL BatchFlow实例
     // 内部架构：ThrottledBatchExecutor -> SQLBatchProcessor -> MySQLDriver
     config := batchflow.PipelineConfig{
-        BufferSize:    1000,        // 缓冲区大小
-        FlushSize:     100,         // 批量刷新大小
+        BufferSize:    100,         // 缓冲区大小
+        FlushSize:     200,         // 批量刷新大小
         FlushInterval: 5 * time.Second, // 刷新间隔
 
         Timeout:       300 * time.Millisecond, // 超时时间
@@ -56,7 +56,9 @@ func main() {
             MaxAttempts: 3,                     // 总尝试次数（含首轮），建议 2~3
             BackoffBase: 10 * time.Millisecond, // 退避基值（指数退避起点）
             MaxBackoff:  20 * time.Millisecond, // 最大退避时长（上限）
-        }
+        },
+
+        ConcurrencyLimit: 100, // 批量并发限制
     }
     batch := batchflow.NewMySQLBatchFlow(ctx, db, config)
 
@@ -120,9 +122,20 @@ func main() {
     // 2. 创建Redis BatchFlow实例
     // 内部架构：ThrottledBatchExecutor -> RedisBatchProcessor -> RedisDriver
     config := batchflow.PipelineConfig{
-        BufferSize:    1000,
-        FlushSize:     100,
-        FlushInterval: 5 * time.Second,
+        BufferSize:    100,         // 缓冲区大小
+        FlushSize:     200,         // 批量刷新大小
+        FlushInterval: 5 * time.Second, // 刷新间隔
+
+        Timeout:       300 * time.Millisecond, // 超时时间
+
+        Retry: batchflow.RetryConfig{
+            Enabled:     true,                  // 是否重试
+            MaxAttempts: 3,                     // 总尝试次数（含首轮），建议 2~3
+            BackoffBase: 10 * time.Millisecond, // 退避基值（指数退避起点）
+            MaxBackoff:  20 * time.Millisecond, // 最大退避时长（上限）
+        },
+
+        ConcurrencyLimit: 100, // 批量并发限制
     }
     batch := batchflow.NewRedisBatchFlow(ctx, rdb, config)
 
