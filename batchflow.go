@@ -108,9 +108,11 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 
 	pipeline := gopipeline.NewStandardPipeline(
 		gopipeline.PipelineConfig{
-			BufferSize:    buffSize,
-			FlushSize:     flushSize,
-			FlushInterval: flushInterval,
+			BufferSize:       buffSize,
+			FlushSize:        flushSize,
+			FlushInterval:    flushInterval,
+			DrainOnCancel:    true,
+			DrainGracePeriod: 2000 * time.Millisecond,
 		},
 		flushFunc,
 	)

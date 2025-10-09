@@ -46,7 +46,7 @@ func main() {
     // 内部架构：ThrottledBatchExecutor -> SQLBatchProcessor -> MySQLDriver
     config := batchflow.PipelineConfig{
         BufferSize:    100,         // 缓冲区大小
-        FlushSize:     200,         // 批量刷新大小
+        FlushSize:     50,         // 批量刷新大小
         FlushInterval: 5 * time.Second, // 刷新间隔
 
         Timeout:       300 * time.Millisecond, // 超时时间
@@ -123,7 +123,7 @@ func main() {
     // 内部架构：ThrottledBatchExecutor -> RedisBatchProcessor -> RedisDriver
     config := batchflow.PipelineConfig{
         BufferSize:    100,         // 缓冲区大小
-        FlushSize:     200,         // 批量刷新大小
+        FlushSize:     50,         // 批量刷新大小
         FlushInterval: 5 * time.Second, // 刷新间隔
 
         Timeout:       300 * time.Millisecond, // 超时时间
