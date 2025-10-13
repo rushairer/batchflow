@@ -44,6 +44,11 @@ type PrometheusMetrics struct {
 	queueLength         *prometheus.GaugeVec // 队列长度
 	inflightBatches     *prometheus.GaugeVec // 在途批次数
 
+	// go-pipeline 对齐新增指标
+	pipelineProcessDuration *prometheus.HistogramVec // 管道级处理耗时（按状态）
+	pipelineDequeueLatency  *prometheus.HistogramVec // 出队等待时延
+	pipelineDroppedTotal    *prometheus.CounterVec   // 丢弃计数（错误通道饱和等）
+
 	// 核心库对齐的直方图指标
 	enqueueLatency   *prometheus.HistogramVec // 入队延迟
 	assembleDuration *prometheus.HistogramVec // 组装耗时
@@ -180,6 +185,31 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 			[]string{"database"},
 		),
 
+		// go-pipeline 对齐新增指标初始化
+		pipelineProcessDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "batchflow_pipeline_process_duration_seconds",
+				Help:    "Pipeline-level process duration per flush",
+				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
+			},
+			[]string{"database", "status"},
+		),
+		pipelineDequeueLatency: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "batchflow_pipeline_dequeue_latency_seconds",
+				Help:    "Time waiting in pipeline queue before processing",
+				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
+			},
+			[]string{"database"},
+		),
+		pipelineDroppedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "batchflow_pipeline_dropped_total",
+				Help: "Total number of dropped events (e.g., error channel full)",
+			},
+			[]string{"database", "reason"},
+		),
+
 		// 新增：核心库对齐的 Histogram
 		enqueueLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -240,6 +270,10 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 		pm.assembleDuration,
 		pm.executeDuration,
 		pm.batchSize,
+		// 注册 go-pipeline 对齐新增指标
+		pm.pipelineProcessDuration,
+		pm.pipelineDequeueLatency,
+		pm.pipelineDroppedTotal,
 		// 既有与新增 Gauge
 		pm.currentRPS,
 		pm.memoryUsage,
@@ -447,6 +481,19 @@ func (pm *PrometheusMetrics) IncInflight(database string) {
 
 func (pm *PrometheusMetrics) DecInflight(database string) {
 	pm.inflightBatches.WithLabelValues(database).Dec()
+}
+
+// 新增：go-pipeline 对齐指标录入
+func (pm *PrometheusMetrics) RecordPipelineProcessDuration(database, status string, d time.Duration) {
+	pm.pipelineProcessDuration.WithLabelValues(database, status).Observe(d.Seconds())
+}
+
+func (pm *PrometheusMetrics) RecordPipelineDequeueLatency(database string, d time.Duration) {
+	pm.pipelineDequeueLatency.WithLabelValues(database).Observe(d.Seconds())
+}
+
+func (pm *PrometheusMetrics) IncPipelineDropped(database, reason string) {
+	pm.pipelineDroppedTotal.WithLabelValues(database, reason).Inc()
 }
 
 // initializeBaseMetrics 初始化基础指标，确保端点始终返回有效数据

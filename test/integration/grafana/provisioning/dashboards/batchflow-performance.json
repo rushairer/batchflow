@@ -1398,13 +1398,14 @@
     {
       "datasource": { "type": "prometheus", "uid": null },
       "type": "timeseries",
-      "title": "入队延迟 (p50/p95)",
+      "title": "入队延迟 (p50/p95/p99)",
       "id": 201,
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 54 },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 54 },
       "options": {
         "legend": { "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi", "sort": "none" }
       },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
@@ -1415,19 +1416,25 @@
           "refId": "B",
           "expr": "histogram_quantile(0.95, sum by (le, database) (rate(batchflow_enqueue_latency_seconds_bucket{database=~\"$database\"}[5m])))",
           "legendFormat": "p95 enqueue ({{database}})"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, database) (rate(batchflow_enqueue_latency_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p99 enqueue ({{database}})"
         }
       ]
     },
     {
       "datasource": { "type": "prometheus", "uid": null },
       "type": "timeseries",
-      "title": "攒批耗时 (p50/p95)",
+      "title": "攒批耗时 (p50/p95/p99)",
       "id": 202,
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 54 },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 54 },
       "options": {
         "legend": { "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi", "sort": "none" }
       },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
@@ -1438,29 +1445,69 @@
           "refId": "B",
           "expr": "histogram_quantile(0.95, sum by (le, database) (rate(batchflow_batch_assemble_duration_seconds_bucket{database=~\"$database\"}[5m])))",
           "legendFormat": "p95 assemble ({{database}})"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, database) (rate(batchflow_batch_assemble_duration_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p99 assemble ({{database}})"
         }
       ]
     },
     {
       "datasource": { "type": "prometheus", "uid": null },
       "type": "timeseries",
-      "title": "执行耗时 (p50/p95)（按测试名）",
+      "title": "执行耗时 (p50/p95/p99)（按测试名）",
       "id": 203,
       "gridPos": { "h": 7, "w": 24, "x": 0, "y": 61 },
       "options": {
         "legend": { "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi", "sort": "none" }
       },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
-          "legendFormat": "p50 exec ({{database}}/{{test_name}})"
+          "expr": "histogram_quantile(0.5, sum by (le, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
+          "legendFormat": "p50 exec ({{test_name}})"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
-          "legendFormat": "p95 exec ({{database}}/{{test_name}})"
+          "expr": "histogram_quantile(0.95, sum by (le, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
+          "legendFormat": "p95 exec ({{test_name}})"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
+          "legendFormat": "p99 exec ({{test_name}})"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": null },
+      "type": "timeseries",
+      "title": "流水线处理耗时 (p50/p95/p99)（按状态）",
+      "id": 205,
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 54 },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, status) (rate(batchflow_pipeline_process_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, status) (rate(batchflow_pipeline_process_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{status}}"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, status) (rate(batchflow_pipeline_process_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{status}}"
         }
       ]
     },
@@ -1469,7 +1516,7 @@
       "type": "timeseries",
       "title": "批大小 (平均/p95)",
       "id": 204,
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 68 },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 68 },
       "options": {
         "legend": { "displayMode": "table", "placement": "bottom" },
         "tooltip": { "mode": "multi", "sort": "none" }
@@ -1484,6 +1531,54 @@
           "refId": "B",
           "expr": "histogram_quantile(0.95, sum by (le, database) (rate(batchflow_batch_size_bucket{database=~\"$database\"}[5m])))",
           "legendFormat": "p95 ({{database}})"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": null },
+      "type": "timeseries",
+      "title": "流水线出队等待 (p50/p95/p99)",
+      "id": 206,
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 68 },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, database) (rate(batchflow_pipeline_dequeue_latency_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p50 dequeue ({{database}})"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, database) (rate(batchflow_pipeline_dequeue_latency_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p95 dequeue ({{database}})"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, database) (rate(batchflow_pipeline_dequeue_latency_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p99 dequeue ({{database}})"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": null },
+      "type": "timeseries",
+      "title": "流水线丢弃错误速率 (by reason)",
+      "id": 207,
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 68 },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (database, reason) (rate(batchflow_pipeline_dropped_total{database=~\"$database\"}[5m]))",
+          "legendFormat": "{{database}} {{reason}}"
         }
       ]
     },

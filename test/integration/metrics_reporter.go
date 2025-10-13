@@ -42,7 +42,8 @@ func (r *PrometheusMetricsReporter) ObserveExecuteDuration(table string, n int, 
 	if r.prometheusMetrics == nil {
 		return
 	}
-	r.prometheusMetrics.RecordExecuteDuration(r.database, table, status, d)
+	// 修复：按测试名上报（与 Grafana 面板按 test_name 维度对齐）
+	r.prometheusMetrics.RecordExecuteDuration(r.database, r.testName, status, d)
 	r.prometheusMetrics.RecordBatchSize(r.database, n)
 }
 
@@ -88,4 +89,26 @@ func (r *PrometheusMetricsReporter) DecInflight() {
 		return
 	}
 	r.prometheusMetrics.DecInflight(r.database)
+}
+
+// PipelineMetricsReporter 扩展实现（可选）：承接 go-pipeline 指标
+func (r *PrometheusMetricsReporter) ObserveDequeueLatency(d time.Duration) {
+	if r.prometheusMetrics == nil {
+		return
+	}
+	r.prometheusMetrics.RecordPipelineDequeueLatency(r.database, d)
+}
+
+func (r *PrometheusMetricsReporter) ObserveProcessDuration(d time.Duration, status string) {
+	if r.prometheusMetrics == nil {
+		return
+	}
+	r.prometheusMetrics.RecordPipelineProcessDuration(r.database, status, d)
+}
+
+func (r *PrometheusMetricsReporter) IncDropped(reason string) {
+	if r.prometheusMetrics == nil {
+		return
+	}
+	r.prometheusMetrics.IncPipelineDropped(r.database, reason)
 }
