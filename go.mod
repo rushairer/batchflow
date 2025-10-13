@@ -8,7 +8,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.14.0
-	github.com/rushairer/go-pipeline/v2 v2.1.0
+	github.com/rushairer/go-pipeline/v2 v2.2.1-alpha
 )
 
 require (

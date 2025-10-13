@@ -57,7 +57,19 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 	}
 
 	// 创建 flush 函数，使用批量执行器处理数据
-	flushFunc := func(ctx context.Context, batchData []*Request) error {
+	flushFunc := func(ctx context.Context, batchData []*Request) (err error) {
+		// 管道级处理耗时（与执行器级 ObserveExecuteDuration 区分）
+		processStart := time.Now()
+		defer func() {
+			// 仅当实现了 PipelineMetricsReporter 时上报；未实现则忽略
+			if pmr, ok := batchFlow.metricsReporter.(PipelineMetricsReporter); ok && pmr != nil {
+				status := "success"
+				if err != nil {
+					status = "fail"
+				}
+				pmr.ObserveProcessDuration(time.Since(processStart), status)
+			}
+		}()
 		// 按schema分组处理
 		schemaGroups := make(map[SchemaInterface][]*Request)
 		for _, request := range batchData {
@@ -118,6 +130,9 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 	)
 
 	batchFlow.pipeline = pipeline
+
+	// 预留：挂接 go-pipeline v2.2.0 的 WithMetrics 到我们的 Reporter 扩展接口
+	attachPipelineMetrics(pipeline, reporter)
 	go func() {
 		_ = pipeline.AsyncPerform(ctx)
 	}()

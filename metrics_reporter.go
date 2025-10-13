@@ -40,3 +40,15 @@ func (*NoopMetricsReporter) SetConcurrency(int)                                 
 func (*NoopMetricsReporter) SetQueueLength(int)                                        {}
 func (*NoopMetricsReporter) IncInflight()                                              {}
 func (*NoopMetricsReporter) DecInflight()                                              {}
+
+// PipelineMetricsReporter 是对 go-pipeline v2.2.0 WithMetrics 的可选扩展接口。
+// - 若实现该接口，框架将把管道级指标事件（通过 pipeline.WithMetrics）桥接到以下方法；
+// - 若未实现，则回退到现有 MetricsReporter 的近似指标或直接忽略（保持向后兼容）。
+type PipelineMetricsReporter interface {
+	// 出队/取用等待时长（元素在队列中的等待时间）
+	ObserveDequeueLatency(d time.Duration)
+	// 管道处理总耗时（与执行器/数据库层的 ObserveExecuteDuration 区分）
+	ObserveProcessDuration(d time.Duration, status string)
+	// 丢弃/拒绝计数（如队列满、背压拒绝等）
+	IncDropped(reason string)
+}
