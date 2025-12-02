@@ -146,5 +146,7 @@ func (r *Reporter) IncDropped(reason string) {
 }
 
 // 确保实现接口
-var _ batchflow.MetricsReporter = (*Reporter)(nil)
-var _ batchflow.PipelineMetricsReporter = (*Reporter)(nil)
+var (
+	_ batchflow.MetricsReporter         = (*Reporter)(nil)
+	_ batchflow.PipelineMetricsReporter = (*Reporter)(nil)
+)

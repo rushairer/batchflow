@@ -409,12 +409,12 @@ func hasLabel(collector prometheus.Collector, labelName string) bool {
 	// 这里用一个简化的静态判断套路：依赖我们构造时的选择，不做反射/解析，避免开销。
 	// 在本实现中我们基于构造路径直接知道是否包含 instance_id/table，因此上面直接使用 hasLabel 调用点的布尔条件。
 	// 为保持接口一致性，保留函数签名。
-	
+
 	// 实际实现：通过反射检查标签（仅在配置阶段调用，运行时开销可接受）
 	ch := make(chan *prometheus.Desc, 10)
 	collector.Describe(ch)
 	close(ch)
-	
+
 	for desc := range ch {
 		descStr := desc.String()
 		// 简单的字符串匹配（Desc.String() 包含标签名称）
@@ -426,10 +426,10 @@ func hasLabel(collector prometheus.Collector, labelName string) bool {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || 
-		(len(s) > len(substr) && 
-			(s[:len(substr)] == substr || 
-				s[len(s)-len(substr):] == substr || 
+	return len(s) >= len(substr) && (s == substr ||
+		(len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
 				indexOfSubstring(s, substr) >= 0)))
 }
 
