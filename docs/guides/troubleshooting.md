@@ -449,10 +449,10 @@ curl -s "http://localhost:9090/api/v1/query?query=batchflow_data_integrity_rate"
 ```go
 // 确保指标范围为 0-1
 integrityRate := float64(actualRecords) / float64(submittedRecords)
-pm.dataIntegrityRate.WithLabelValues(database, testName).Set(integrityRate)
+pm.dataIntegrityRate.WithLabelValues(database, instanceID).Set(integrityRate)
 
 // 而不是百分比值
-// pm.dataIntegrityRate.WithLabelValues(database, testName).Set(integrityRate * 100) // 错误
+// pm.dataIntegrityRate.WithLabelValues(database, instanceID).Set(integrityRate * 100) // 错误
 ```
 
 #### Prometheus 指标缺失

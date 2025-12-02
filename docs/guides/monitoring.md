@@ -72,28 +72,36 @@ func main() {
 
 | 指标名称 | 类型 | 描述 | 标签 | 查询示例 |
 |---------|------|------|------|----------|
-| `batchflow_records_processed_total` | Counter | 已处理记录总数（按状态分类） | `database`, `test_name`, `status` | `sum(batchflow_records_processed_total)` |
-| `batchflow_records_rate_total` | Counter | 用于 RPS 计算的累计记录数 | `database`, `test_name` | `rate(batchflow_records_rate_total[5m])` |
-| `batchflow_current_rps` | Gauge | 当前每秒处理记录数（瞬时值） | `database`, `test_name` | `batchflow_current_rps` |
-| `batchflow_batch_execution_duration_ms` | Histogram | 批次执行耗时分布 | `database`, `table`, `test_name` | `histogram_quantile(0.95, rate(batchflow_batch_execution_duration_ms_bucket[5m]))` |
-| `batchflow_batch_size` | Histogram | 批次大小分布 | `database`, `table`, `test_name` | `histogram_quantile(0.50, rate(batchflow_batch_size_bucket[5m]))` |
+| `batchflow_records_processed_total` | Counter | 已处理记录总数（按状态分类） | `database`, `instance_id`, `status` | `sum(batchflow_records_processed_total)` |
+| `batchflow_records_rate_total` | Counter | 用于 RPS 计算的累计记录数 | `database`, `instance_id` | `rate(batchflow_records_rate_total[5m])` |
+| `batchflow_current_rps` | Gauge | 当前每秒处理记录数（瞬时值） | `database`, `instance_id` | `batchflow_current_rps` |
+| `batchflow_batch_execution_duration_ms` | Histogram | 批次执行耗时分布 | `database`, `table`, `instance_id`, `status` | `histogram_quantile(0.95, rate(batchflow_batch_execution_duration_ms_bucket[5m]))` |
+| `batchflow_batch_size` | Histogram | 批次大小分布 | `database`, `table`, `instance_id` | `histogram_quantile(0.50, rate(batchflow_batch_size_bucket[5m]))` |
+
+### 管道级指标
+
+| 指标名称 | 类型 | 描述 | 标签 | 查询示例 |
+|---------|------|------|------|----------|
+| `batchflow_pipeline_dequeue_latency_seconds` | Histogram | 管道出队延迟 | `database`, `instance_id` | `histogram_quantile(0.95, rate(batchflow_pipeline_dequeue_latency_seconds_bucket[5m]))` |
+| `batchflow_pipeline_process_duration_seconds` | Histogram | 管道处理耗时 | `database`, `instance_id`, `status` | `histogram_quantile(0.95, rate(batchflow_pipeline_process_duration_seconds_bucket[5m]))` |
+| `batchflow_pipeline_dropped_total` | Counter | 管道丢弃计数 | `database`, `instance_id`, `reason` | `sum(rate(batchflow_pipeline_dropped_total[5m])) by (reason)` |
 
 ### 质量指标
 
 | 指标名称 | 类型 | 描述 | 标签 |
 |---------|------|------|------|
-| `batchflow_data_integrity_rate` | Gauge | 数据完整性率 (0-1) | `database`, `test_name` |
-| `batchflow_error_rate` | Gauge | 错误率 (0-1) | `database`, `test_name` |
-| `batchflow_batch_success_total` | Counter | 成功批次总数 | `database`, `table`, `test_name` |
-| `batchflow_batch_failed_total` | Counter | 失败批次总数 | `database`, `table`, `test_name` |
+| `batchflow_data_integrity_rate` | Gauge | 数据完整性率 (0-1) | `database`, `instance_id` |
+| `batchflow_error_rate` | Gauge | 错误率 (0-1) | `database`, `instance_id` |
+| `batchflow_batch_success_total` | Counter | 成功批次总数 | `database`, `table`, `instance_id` |
+| `batchflow_batch_failed_total` | Counter | 失败批次总数 | `database`, `table`, `instance_id` |
 
 ### 系统指标
 
 | 指标名称 | 类型 | 描述 | 标签 |
 |---------|------|------|------|
-| `batchflow_memory_usage_bytes` | Gauge | 内存使用量 | `database`, `test_name` |
+| `batchflow_memory_usage_bytes` | Gauge | 内存使用量 | `database`, `instance_id` |
 | `batchflow_active_connections` | Gauge | 活跃连接数 | `database` |
-| `batchflow_buffer_utilization` | Gauge | 缓冲区利用率 (0-1) | `database`, `test_name` |
+| `batchflow_buffer_utilization` | Gauge | 缓冲区利用率 (0-1) | `database`, `instance_id` |
 
 ## 🔁 Retry 指标与查询示例
 
@@ -137,12 +145,17 @@ histogram_quantile(0.95, rate(batchflow_batch_execution_duration_ms_bucket[5m]))
   - 指标注册与 HTTP /metrics 服务（prometheus_metrics.go）
   - 执行器/BatchFlow 对接的 Reporter（prometheus_reporter.go）
   - 单一 Grafana Dashboard（test/integration/grafana/provisioning/dashboards/batchflow-performance.json）
-- 适用场景：希望“快速可视化 + 按需裁剪”的团队
+- 适用场景：希望"快速可视化 + 按需裁剪"的团队
 - 使用步骤：
   1) NewMetrics + StartServer(2112)
-  2) NewReporter(metrics, database, testName)
+  2) NewReporter(metrics, database, instanceID)
   3) executor.WithMetricsReporter(reporter) 并传入 NewBatchFlow
   4) 导入上述 Dashboard
+- 标签说明：
+  - database：数据库类型（mysql/postgres/sqlite/redis）
+  - instance_id：实例标识，用于区分多个 BatchFlow 实例
+    - 集成测试：使用测试名称（如 "高吞吐量测试"）
+    - 生产环境：使用业务标识（如 "order_writer", "log_collector"）
 
 提示：生产中建议按需配置 Namespace/ConstLabels/Buckets，并谨慎开启 table 维度，避免标签基数膨胀。
 
@@ -180,12 +193,17 @@ histogram_quantile(0.95, rate(batchflow_batch_execution_duration_ms_bucket[5m]))
 **修复**：将初始化的测试类型改为实际使用的中文名称  
 **原因**：初始化使用英文名称，但实际测试使用中文名称，导致标签不匹配
 
-**实际的测试名称**：
-- `"高吞吐量测试"` (原 `batch_insert`)
-- `"并发工作线程测试"` (原 `concurrent_workers`) 
-- `"大批次测试"` (原 `large_batch`)
-- `"内存压力测试"` (原 `stress_test`)
-- `"长时间运行测试"` (新增)
+**实际的实例标识**：
+- 集成测试：使用测试名称
+  - `"高吞吐量测试"` (原 `batch_insert`)
+  - `"并发工作线程测试"` (原 `concurrent_workers`) 
+  - `"大批次测试"` (原 `large_batch`)
+  - `"内存压力测试"` (原 `stress_test`)
+  - `"长时间运行测试"` (新增)
+- 生产环境：使用业务标识
+  - `"order_writer"` - 订单写入服务
+  - `"log_collector"` - 日志收集服务
+  - `"user_sync"` - 用户同步服务
 
 ### 正确的查询方法
 
@@ -262,7 +280,7 @@ batchflow_response_time_seconds{quantile="0.5"}  # 50th percentile (median)
       "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "sum(rate(batchflow_errors_total{type=~\"retry:.*\",database=~\"$database\",table=~\"$table\"}[5m])) by (table, type)",
+          "expr": "sum(rate(batchflow_errors_total{type=~"retry:.*",database=~"$database",table=~"$table"}[5m])) by (table, type)",
           "legendFormat": "{{table}} {{type}}"
         }
       ]
@@ -273,7 +291,7 @@ batchflow_response_time_seconds{quantile="0.5"}  # 50th percentile (median)
       "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "sum(rate(batchflow_errors_total{type=~\"final:.*\",database=~\"$database\",table=~\"$table\"}[5m])) by (table, type)",
+          "expr": "sum(rate(batchflow_errors_total{type=~"final:.*",database=~"$database",table=~"$table"}[5m])) by (table, type)",
           "legendFormat": "{{table}} {{type}}"
         }
       ]
@@ -284,7 +302,7 @@ batchflow_response_time_seconds{quantile="0.5"}  # 50th percentile (median)
       "gridPos": {"x": 0, "y": 8, "w": 6, "h": 6},
       "targets": [
         {
-          "expr": "sum(rate(batchflow_errors_total{type=~\"retry:.*\",database=~\"$database\",table=~\"$table\"}[5m])) / sum(rate(batchflow_errors_total{type=~\"(retry:|final:).*\",database=~\"$database\",table=~\"$table\"}[5m]))",
+          "expr": "sum(rate(batchflow_errors_total{type=~"retry:.*",database=~"$database",table=~"$table"}[5m])) / sum(rate(batchflow_errors_total{type=~"(retry:|final:).*",database=~"$database",table=~"$table"}[5m]))",
           "legendFormat": "retry_ratio"
         }
       ],
@@ -315,7 +333,7 @@ batchflow_response_time_seconds{quantile="0.5"}  # 50th percentile (median)
       "gridPos": {"x": 6, "y": 8, "w": 18, "h": 6},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(batchflow_batch_execution_duration_ms_bucket{database=~\"$database\"}[5m]))",
+          "expr": "histogram_quantile(0.95, rate(batchflow_batch_execution_duration_ms_bucket{database=~"$database"}[5m]))",
           "legendFormat": "P95 {{database}}"
         }
       ],
@@ -493,7 +511,7 @@ rate(batchflow_batch_failed_total[5m]) / rate(batchflow_batch_success_total[5m] 
 batchflow_memory_usage_mb  # 已经是 MB 单位，无需转换
 
 # 缓冲区利用率
-avg(batchflow_buffer_utilization) by (database, test_name)
+avg(batchflow_buffer_utilization) by (database, instance_id)
 
 # 连接池使用情况
 batchflow_active_connections / on(database) group_left() max_connections
@@ -603,7 +621,7 @@ groups:
 type CustomMetricsCollector struct {
     prometheus *PrometheusMetrics
     database   string
-    testName   string
+    instanceID string
     
     // 自定义指标
     customCounter   prometheus.Counter
@@ -706,7 +724,7 @@ integrity
 labels := map[string]string{
     "database":  "mysql",      // 数据库类型
     "table":     "users",      // 表名
-    "test_name": "batch_insert", // 测试名称
+    "instance_id": "batch_insert", // 实例标识
     "env":       "production", // 环境
 }
 

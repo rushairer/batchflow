@@ -4,6 +4,10 @@
 
 ## 接口说明
 
+BatchFlow 提供两个指标接口：
+
+### 1. MetricsReporter（核心接口）
+
 接口位于 metrics_reporter.go：
 - ObserveEnqueueLatency(d)        提交到入队的耗时
 - ObserveBatchAssemble(d)         攒批/组装耗时
@@ -13,6 +17,13 @@
 - SetConcurrency(n)               执行并发度（0 表示不限流）
 - SetQueueLength(n)               队列长度
 - IncInflight()/DecInflight()     在途批次数（进入/退出执行区间）
+
+### 2. PipelineMetricsReporter（扩展接口，可选）
+
+用于 go-pipeline 集成的管道级指标：
+- ObserveDequeueLatency(d)        管道出队延迟
+- ObserveProcessDuration(d, status) 管道处理耗时（按状态）
+- IncDropped(reason)              管道丢弃计数（按原因）
 
 实现时可按需选择方法；推荐至少实现：
 - ObserveExecuteDuration、ObserveBatchSize
@@ -51,9 +62,13 @@ defer bs.Close()
 - 并发度、队列长度、在途批次：Gauge。
 - 错误：Counter，kind 维度可区分 retry:reason 与 final:reason。
 - 标签建议：
-  - database（例如 mysql/postgres/sqlite/redis）
-  - test_name 或 table（根据你的场景选择其一）
-  - status（success/fail），如你希望对成功/失败耗时分布做区分
+  - database：数据库类型（mysql/postgres/sqlite/redis）
+  - instance_id：实例标识，用于区分多个 BatchFlow 实例
+    - 集成测试：使用测试名称（如 "高吞吐量测试"）
+    - 生产环境：使用业务标识（如 "order_writer", "log_collector"）
+  - table：表名（可选，仅在需要按表维度统计时使用）
+  - status：执行状态（success/fail），用于区分成功/失败耗时分布
+  - reason：丢弃原因（如 "error_chan_full"，仅管道级指标）
 
 ## Noop 实现与渐进启用
 

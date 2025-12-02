@@ -1,6 +1,6 @@
 # 监控快速上手（Prometheus + Grafana）
 
-适用对象：想要“开箱即用”查看 BatchFlow 性能指标（入队延迟、攒批耗时、执行耗时、批大小、队列长度、执行并发、在途批次）的用户。
+适用对象：想要"开箱即用"查看 BatchFlow 性能指标（入队延迟、攒批耗时、执行耗时、批大小、队列长度、执行并发、在途批次）的用户。
 
 ## 一、启动 Prometheus 指标端点
 
@@ -16,7 +16,7 @@ defer pm.StopServer()
 
 ```go
 exec := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, driver)
-reporter := integration.NewPrometheusMetricsReporter(pm, "postgres", "user_batch") // database/test_name 标签
+reporter := integration.NewPrometheusMetricsReporter(pm, "postgres", "user_batch") // database/instance_id 标签
 exec = exec.WithMetricsReporter(reporter)
 
 bs := batchflow.NewBatchFlow(ctx, 5000, 200, 100*time.Millisecond, exec)
@@ -25,7 +25,8 @@ defer bs.Close()
 
 提示：
 - 默认使用 NoopMetricsReporter（零开销）。只有在你注入 Reporter 后，库内埋点才会真正上报。
-- 一定要“先 WithMetricsReporter，再 NewBatchFlow”。NewBatchFlow 会尊重已注入的 Reporter；若未设置则仅在内部使用本地 Noop 兜底，不写回执行器。
+- 一定要"先 WithMetricsReporter，再 NewBatchFlow"。NewBatchFlow 会尊重已注入的 Reporter；若未设置则仅在内部使用本地 Noop 兜底，不写回执行器。
+- instance_id 标签用于区分多个 BatchFlow 实例，在集成测试中使用测试名称，在生产环境中使用业务标识（如 "order_writer"）。
 
 ## 三、导入 Grafana 面板
 
@@ -83,24 +84,37 @@ sum by (table) (rate(batchflow_errors_total{type=~"(retry:|final:).*"}[15m]))
 histogram_quantile(0.99, sum by (table, le) (rate(batchflow_execute_duration_seconds_bucket[5m])))
 ```
 
+- 管道级指标（go-pipeline 集成）
+```
+# 管道出队延迟
+histogram_quantile(0.95, sum by (le) (rate(batchflow_pipeline_dequeue_latency_seconds_bucket[5m])))
+
+# 管道处理耗时（按状态）
+histogram_quantile(0.95, sum by (status, le) (rate(batchflow_pipeline_process_duration_seconds_bucket[5m])))
+
+# 管道丢弃速率（按原因）
+sum by (reason) (rate(batchflow_pipeline_dropped_total[5m]))
+```
+
 ### Grafana 面板与变量说明
 
 - 面板位置（示例）：test/integration/grafana/provisioning/dashboards/batchflow-performance.json
 - 变量建议：
   - database：数据库类型（mysql/postgres/sqlite/redis）
   - table：表名/逻辑名
-  - test_name：测试或业务分组名
+  - instance_id：实例标识（集成测试中为测试名称，生产环境中为业务标识）
 - 使用提示：
   - 若你自定义了 Retry Classifier（如将内部超时标记为 retry:processor_timeout），请在图表查询中相应筛选该标签值。
   - ObserveExecuteDuration 指标已包含重试与退避时间，查看 P95/P99 可评估重试对尾部延迟的影响。
+  - 管道级指标需实现 PipelineMetricsReporter 接口，详见 go-pipeline-metrics.md。
 
 ## 常见问题排查
 
 - 指标没有数据：
   - 是否在 NewBatchFlow 之前注入了 Reporter？
   - Prometheus /metrics 是否可访问？Grafana 数据源是否指向该 Prometheus？
-  - 面板变量 database/test_name 是否包含当前值（例如 postgres）？
+  - 面板变量 database/instance_id 是否包含当前值（例如 postgres）？
 - 执行并发度为 0：
   - 表示未限流（不限流场景并发度 Gauge 为 0）。
   - 如需非 0 值，调用 WithConcurrencyLimit(8) 等。
-  - 也可关注“在途批次数”图表，反映实时压力。
+  - 也可关注"在途批次数"图表，反映实时压力。

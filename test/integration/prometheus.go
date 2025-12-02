@@ -40,6 +40,7 @@ type PrometheusMetrics struct {
 	activeConnections *prometheus.GaugeVec // 活跃数据库连接数
 
 	// 核心库对齐指标 - 与主库 executor/processor 指标保持一致
+	// 标签维度：database, instance_id（替代原有的 test_name，语义更清晰，支持多实例）
 	executorConcurrency *prometheus.GaugeVec // 执行器并发度
 	queueLength         *prometheus.GaugeVec // 队列长度
 	inflightBatches     *prometheus.GaugeVec // 在途批次数
@@ -52,7 +53,7 @@ type PrometheusMetrics struct {
 	// 核心库对齐的直方图指标
 	enqueueLatency   *prometheus.HistogramVec // 入队延迟
 	assembleDuration *prometheus.HistogramVec // 组装耗时
-	executeDuration  *prometheus.HistogramVec // 执行耗时
+	executeDuration  *prometheus.HistogramVec // 执行耗时（按状态区分：success/fail）
 	batchSize        *prometheus.HistogramVec // 批次大小分布
 
 	// 摘要指标 - 用于响应时间分位数统计 [分位数修复于 2025-10-03]
@@ -162,27 +163,27 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 		),
 
 		// 新增：核心库对齐的 Gauge
+		// 标签：database, instance_id（支持多实例隔离）
 		executorConcurrency: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "batchflow_executor_concurrency",
 				Help: "Current executor concurrency",
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
 		queueLength: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "batchflow_pipeline_queue_length",
 				Help: "Current pipeline queue length",
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
-
 		inflightBatches: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "batchflow_inflight_batches",
 				Help: "Current in-flight batch count (executing now)",
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
 
 		// go-pipeline 对齐新增指标初始化
@@ -192,7 +193,7 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 				Help:    "Pipeline-level process duration per flush",
 				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
 			},
-			[]string{"database", "status"},
+			[]string{"database", "instance_id", "status"},
 		),
 		pipelineDequeueLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -200,14 +201,14 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 				Help:    "Time waiting in pipeline queue before processing",
 				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
 		pipelineDroppedTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "batchflow_pipeline_dropped_total",
 				Help: "Total number of dropped events (e.g., error channel full)",
 			},
-			[]string{"database", "reason"},
+			[]string{"database", "instance_id", "reason"},
 		),
 
 		// 新增：核心库对齐的 Histogram
@@ -217,7 +218,7 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 				Help:    "Latency from submit to enqueue",
 				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
 		assembleDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -225,15 +226,15 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 				Help:    "Duration to assemble a batch",
 				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
 		executeDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    "batchflow_execute_duration_seconds",
-				Help:    "Execute duration for a batch",
+				Help:    "Execute duration for a batch (includes retry/backoff)",
 				Buckets: prometheus.ExponentialBuckets(0.0005, 2, 18),
 			},
-			[]string{"database", "test_name"}, // 保守复用现有标签集，若需 table/status 可后续扩展
+			[]string{"database", "instance_id", "status"}, // status: success/fail
 		),
 		batchSize: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -241,7 +242,7 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 				Help:    "Batch size distribution",
 				Buckets: prometheus.ExponentialBuckets(1, 2, 12),
 			},
-			[]string{"database"},
+			[]string{"database", "instance_id"},
 		),
 
 		// 摘要指标
@@ -449,57 +450,57 @@ func (pm *PrometheusMetrics) RecordResponseTime(database, operation string, dura
 }
 
 // 新增：与 MetricsReporter 对齐的方法
-func (pm *PrometheusMetrics) RecordEnqueueLatency(database string, d time.Duration) {
-	pm.enqueueLatency.WithLabelValues(database).Observe(d.Seconds())
+// 所有方法添加 instanceID 参数，支持多实例隔离
+func (pm *PrometheusMetrics) RecordEnqueueLatency(database, instanceID string, d time.Duration) {
+	pm.enqueueLatency.WithLabelValues(database, instanceID).Observe(d.Seconds())
 }
 
-func (pm *PrometheusMetrics) RecordAssembleDuration(database string, d time.Duration) {
-	pm.assembleDuration.WithLabelValues(database).Observe(d.Seconds())
+func (pm *PrometheusMetrics) RecordAssembleDuration(database, instanceID string, d time.Duration) {
+	pm.assembleDuration.WithLabelValues(database, instanceID).Observe(d.Seconds())
 }
 
-func (pm *PrometheusMetrics) RecordExecuteDuration(database, tableOrTest, status string, d time.Duration) {
-	// 目前 prometheus.go 中 executeDuration 仅有 database,test_name 两个标签
-	// 为不破坏现有集成测试结构，这里将 tableOrTest 作为 test_name 使用；status 暂不入标签
-	pm.executeDuration.WithLabelValues(database, tableOrTest).Observe(d.Seconds())
+func (pm *PrometheusMetrics) RecordExecuteDuration(database, instanceID, status string, d time.Duration) {
+	pm.executeDuration.WithLabelValues(database, instanceID, status).Observe(d.Seconds())
 }
 
-func (pm *PrometheusMetrics) RecordBatchSize(database string, n int) {
-	pm.batchSize.WithLabelValues(database).Observe(float64(n))
+func (pm *PrometheusMetrics) RecordBatchSize(database, instanceID string, n int) {
+	pm.batchSize.WithLabelValues(database, instanceID).Observe(float64(n))
 }
 
-func (pm *PrometheusMetrics) SetExecutorConcurrency(database string, n int) {
-	pm.executorConcurrency.WithLabelValues(database).Set(float64(n))
+func (pm *PrometheusMetrics) SetExecutorConcurrency(database, instanceID string, n int) {
+	pm.executorConcurrency.WithLabelValues(database, instanceID).Set(float64(n))
 }
 
-func (pm *PrometheusMetrics) SetQueueLength(database string, n int) {
-	pm.queueLength.WithLabelValues(database).Set(float64(n))
+func (pm *PrometheusMetrics) SetQueueLength(database, instanceID string, n int) {
+	pm.queueLength.WithLabelValues(database, instanceID).Set(float64(n))
 }
 
-func (pm *PrometheusMetrics) IncInflight(database string) {
-	pm.inflightBatches.WithLabelValues(database).Inc()
+func (pm *PrometheusMetrics) IncInflight(database, instanceID string) {
+	pm.inflightBatches.WithLabelValues(database, instanceID).Inc()
 }
 
-func (pm *PrometheusMetrics) DecInflight(database string) {
-	pm.inflightBatches.WithLabelValues(database).Dec()
+func (pm *PrometheusMetrics) DecInflight(database, instanceID string) {
+	pm.inflightBatches.WithLabelValues(database, instanceID).Dec()
 }
 
 // 新增：go-pipeline 对齐指标录入
-func (pm *PrometheusMetrics) RecordPipelineProcessDuration(database, status string, d time.Duration) {
-	pm.pipelineProcessDuration.WithLabelValues(database, status).Observe(d.Seconds())
+func (pm *PrometheusMetrics) RecordPipelineProcessDuration(database, instanceID, status string, d time.Duration) {
+	pm.pipelineProcessDuration.WithLabelValues(database, instanceID, status).Observe(d.Seconds())
 }
 
-func (pm *PrometheusMetrics) RecordPipelineDequeueLatency(database string, d time.Duration) {
-	pm.pipelineDequeueLatency.WithLabelValues(database).Observe(d.Seconds())
+func (pm *PrometheusMetrics) RecordPipelineDequeueLatency(database, instanceID string, d time.Duration) {
+	pm.pipelineDequeueLatency.WithLabelValues(database, instanceID).Observe(d.Seconds())
 }
 
-func (pm *PrometheusMetrics) IncPipelineDropped(database, reason string) {
-	pm.pipelineDroppedTotal.WithLabelValues(database, reason).Inc()
+func (pm *PrometheusMetrics) IncPipelineDropped(database, instanceID, reason string) {
+	pm.pipelineDroppedTotal.WithLabelValues(database, instanceID, reason).Inc()
 }
 
 // initializeBaseMetrics 初始化基础指标，确保端点始终返回有效数据
 //
 // 更新历史：
 // - 2025-10-03: 修复测试名称标签不匹配问题，统一使用中文测试名称
+// - 2025-12-02: 重构标签体系，使用 instance_id 替代 test_name，支持多实例隔离
 //
 // 功能说明：
 //   - 为所有数据库和测试类型组合初始化指标为 0
@@ -508,35 +509,34 @@ func (pm *PrometheusMetrics) IncPipelineDropped(database, reason string) {
 func (pm *PrometheusMetrics) initializeBaseMetrics() {
 	// 初始化计数器指标为 0
 	databases := []string{"mysql", "postgres", "sqlite", "redis"}
-	// 测试类型名称：修复于 2025-10-03，确保与实际测试执行时的名称完全一致
-	// 这些名称必须与 sql_tests.go 和 redis_tests.go 中 testCases 的 name 字段匹配
-	testTypes := []string{"高吞吐量测试", "并发工作线程测试", "大批次测试", "内存压力测试", "长时间运行测试"}
+	// 测试实例标识（集成测试中使用测试名称作为 instance_id）
+	instanceIDs := []string{"高吞吐量测试", "并发工作线程测试", "大批次测试", "内存压力测试", "长时间运行测试"}
 
 	for _, db := range databases {
-		for _, testType := range testTypes {
-			// 初始化计数器 - 3个标签: database, test_name, status/result/error_type
-			// 使用与 RecordTestResult 中相同的标签值
-			pm.totalRecordsProcessed.WithLabelValues(db, testType, "processed").Add(0)
-			pm.totalRecordsProcessed.WithLabelValues(db, testType, "actual").Add(0)
-			pm.recordsProcessedRate.WithLabelValues(db, testType).Add(0)
-			pm.totalTestsRun.WithLabelValues(db, testType, "success").Add(0)
-			pm.totalTestsRun.WithLabelValues(db, testType, "failure").Add(0)
-			pm.totalErrors.WithLabelValues(db, testType, "general").Add(0)
+		for _, instanceID := range instanceIDs {
+			// 初始化传统测试报告指标（用于 RecordTestResult）
+			pm.totalRecordsProcessed.WithLabelValues(db, instanceID, "processed").Add(0)
+			pm.totalRecordsProcessed.WithLabelValues(db, instanceID, "actual").Add(0)
+			pm.recordsProcessedRate.WithLabelValues(db, instanceID).Add(0)
+			pm.totalTestsRun.WithLabelValues(db, instanceID, "success").Add(0)
+			pm.totalTestsRun.WithLabelValues(db, instanceID, "failure").Add(0)
+			pm.totalErrors.WithLabelValues(db, instanceID, "general").Add(0)
+			pm.currentRPS.WithLabelValues(db, instanceID).Set(0)
+			pm.memoryUsage.WithLabelValues(db, instanceID, "alloc").Set(0)
+			pm.memoryUsage.WithLabelValues(db, instanceID, "total_alloc").Set(0)
+			pm.memoryUsage.WithLabelValues(db, instanceID, "sys").Set(0)
+			pm.dataIntegrityRate.WithLabelValues(db, instanceID).Set(1.0)
+			pm.concurrentWorkers.WithLabelValues(db, instanceID).Set(0)
 
-			// 初始化仪表盘指标 - 标签数量要匹配定义
-			// currentRPS: 2个标签 (database, test_name)
-			pm.currentRPS.WithLabelValues(db, testType).Set(0)
+			// 初始化核心库对齐指标（database, instance_id）
+			pm.executorConcurrency.WithLabelValues(db, instanceID).Set(0)
+			pm.queueLength.WithLabelValues(db, instanceID).Set(0)
+			pm.inflightBatches.WithLabelValues(db, instanceID).Set(0)
 
-			// memoryUsage: 3个标签 (database, test_name, type)
-			pm.memoryUsage.WithLabelValues(db, testType, "alloc").Set(0)
-			pm.memoryUsage.WithLabelValues(db, testType, "total_alloc").Set(0)
-			pm.memoryUsage.WithLabelValues(db, testType, "sys").Set(0)
-
-			// dataIntegrityRate: 2个标签 (database, test_name) - 范围 0-1
-			pm.dataIntegrityRate.WithLabelValues(db, testType).Set(1.0)
-
-			// concurrentWorkers: 2个标签 (database, test_name)
-			pm.concurrentWorkers.WithLabelValues(db, testType).Set(0)
+			// 初始化常见错误类型
+			pm.totalErrors.WithLabelValues(db, instanceID, "retry:deadlock").Add(0)
+			pm.totalErrors.WithLabelValues(db, instanceID, "final:context").Add(0)
+			pm.totalErrors.WithLabelValues(db, instanceID, "final:non_retryable").Add(0)
 		}
 
 		// activeConnections: 1个标签 (database)

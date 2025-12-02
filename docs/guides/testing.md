@@ -364,7 +364,7 @@ func TestPrometheusMetrics(t *testing.T) {
     
     // 创建带监控的执行器
     executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver)
-    metricsReporter := NewPrometheusMetricsReporter(prometheusMetrics, "mysql", "test")
+    metricsReporter := NewPrometheusMetricsReporter(prometheusMetrics, "mysql", "test_instance")
     executor = executor.WithMetricsReporter(metricsReporter).(*batchflow.ThrottledBatchExecutor)
     
     batchFlow := batchflow.NewBatchFlow(ctx, 1000, 100, 100*time.Millisecond, executor)

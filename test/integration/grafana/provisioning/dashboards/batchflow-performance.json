@@ -1467,18 +1467,18 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
-          "legendFormat": "p50 exec ({{test_name}})"
+          "expr": "histogram_quantile(0.5, sum by (le, instance_id) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p50 exec ({{instance_id}})"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
-          "legendFormat": "p95 exec ({{test_name}})"
+          "expr": "histogram_quantile(0.95, sum by (le, instance_id) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p95 exec ({{instance_id}})"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by (le, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\",test_name=~\"$test_name\"}[5m])))",
-          "legendFormat": "p99 exec ({{test_name}})"
+          "expr": "histogram_quantile(0.99, sum by (le, instance_id) (rate(batchflow_execute_duration_seconds_bucket{database=~\"$database\"}[5m])))",
+          "legendFormat": "p99 exec ({{instance_id}})"
         }
       ]
     },

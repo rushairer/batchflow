@@ -43,8 +43,8 @@
 - `histogram_quantile(0.95, sum by (le, database) (rate(batchflow_enqueue_latency_seconds_bucket{database=~"$database"}[5m])))`
 - `histogram_quantile(0.5, sum by (le, database) (rate(batchflow_batch_assemble_duration_seconds_bucket{database=~"$database"}[5m])))`
 - `histogram_quantile(0.95, sum by (le, database) (rate(batchflow_batch_assemble_duration_seconds_bucket{database=~"$database"}[5m])))`
-- `histogram_quantile(0.5, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~"$database",test_name=~"$test_name"}[5m])))`
-- `histogram_quantile(0.95, sum by (le, database, test_name) (rate(batchflow_execute_duration_seconds_bucket{database=~"$database",test_name=~"$test_name"}[5m])))`
+- `histogram_quantile(0.5, sum by (le, database, instance_id) (rate(batchflow_execute_duration_seconds_bucket{database=~"$database"}[5m])))`
+- `histogram_quantile(0.95, sum by (le, database, instance_id) (rate(batchflow_execute_duration_seconds_bucket{database=~"$database"}[5m])))`
 
 ### 9. 执行器与队列
 - `batchflow_executor_concurrency{database=~"$database"}`

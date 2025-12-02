@@ -201,7 +201,13 @@ type MetricsReporter interface {
 - 批大小：整数（n）。
 - Gauge：并发度（0 表示不限流）、队列长度、在途批次。
 - 错误：Counter，kind 建议采用 retry:<reason> 或 final:<reason>。
-- 常见标签：database（mysql/postgres/sqlite/redis）、test_name 或 table（场景二选一）、status（success/fail）。
+- 标签说明：
+  - database：数据库类型（mysql/postgres/sqlite/redis）
+  - instance_id：实例标识，用于区分多个 BatchFlow 实例
+    - 集成测试：使用测试名称（如 "高吞吐量测试"）
+    - 生产环境：使用业务标识（如 "order_writer", "log_collector"）
+  - table：表名（可选，仅在需要按表维度统计时使用）
+  - status：执行状态（success/fail）
 
 进一步阅读
 - 监控快速上手：docs/guides/monitoring-quickstart.md
@@ -228,7 +234,7 @@ batchFlow := batchflow.NewBatchFlow(ctx, bufferSize, batchSize, flushInterval, e
 ```go
 // 创建Prometheus指标报告器
 prometheusMetrics := NewPrometheusMetrics()
-metricsReporter := NewPrometheusMetricsReporter(prometheusMetrics, "mysql", "batch_insert")
+metricsReporter := NewPrometheusMetricsReporter(prometheusMetrics, "mysql", "order_writer")
 
 // 应用到执行器
 executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver)
@@ -266,7 +272,7 @@ executor = executor.WithMetricsReporter(metricsReporter)
 #### 4. 多数据库监控模式
 
 ```go
-func setupExecutorWithMetrics(dbType string, db interface{}, prometheusMetrics *PrometheusMetrics, testName string) batchflow.BatchExecutor {
+func setupExecutorWithMetrics(dbType string, db interface{}, prometheusMetrics *PrometheusMetrics, instanceID string) batchflow.BatchExecutor {
     var executor batchflow.BatchExecutor
     
     switch dbType {
@@ -282,7 +288,7 @@ func setupExecutorWithMetrics(dbType string, db interface{}, prometheusMetrics *
     
     // 统一添加指标监控
     if prometheusMetrics != nil {
-        metricsReporter := NewPrometheusMetricsReporter(prometheusMetrics, dbType, testName)
+        metricsReporter := NewPrometheusMetricsReporter(prometheusMetrics, dbType, instanceID)
         executor = executor.WithMetricsReporter(metricsReporter)
     }
     
