@@ -17,7 +17,9 @@ make docs-check
 - `Submit` 的取消语义
 - `Close()` 最终 flush 语义
 - `Wait()` / `Done()` 生命周期语义
+- 生命周期示例的可编译性（例如 `ExampleBatchFlow_Close`、`ExampleBatchFlow_Done`）
 - `Schema` 校验和 `Request.Validate()`
+- `NewRequest` typed setter 的列值保真
 - 重试分类与错误标签
 
 ### 2. 执行器测试

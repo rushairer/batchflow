@@ -39,12 +39,52 @@ func (r *Request) GetOrderedValues() []any {
 }
 
 // 类型化的设置方法
+func (r *Request) SetInt(colName string, value int) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetInt8(colName string, value int8) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetInt16(colName string, value int16) *Request {
+	r.columns[colName] = value
+	return r
+}
+
 func (r *Request) SetInt32(colName string, value int32) *Request {
 	r.columns[colName] = value
 	return r
 }
 
 func (r *Request) SetInt64(colName string, value int64) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetUint(colName string, value uint) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetUint8(colName string, value uint8) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetUint16(colName string, value uint16) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetUint32(colName string, value uint32) *Request {
+	r.columns[colName] = value
+	return r
+}
+
+func (r *Request) SetUint64(colName string, value uint64) *Request {
 	r.columns[colName] = value
 	return r
 }

@@ -42,6 +42,7 @@ done
 
 required_patterns=(
   'Close\(\)'
+  'Done\(\)'
   'pipeline_flush_size'
   'submit_rejected_total'
 )
@@ -49,6 +50,24 @@ required_patterns=(
 for pattern in "${required_patterns[@]}"; do
   if ! rg -n "$pattern" "$ROOT/README.md" "$ROOT/docs/api/reference.md" "$ROOT/docs/guides/metrics-spec.md" >/dev/null; then
     echo "required contract pattern missing: $pattern" >&2
+    exit 1
+  fi
+done
+
+request_contract_docs=(
+  "$ROOT/README.md"
+  "$ROOT/docs/api/reference.md"
+  "$ROOT/docs/guides/examples.md"
+)
+
+request_required_patterns=(
+  'SetUint64'
+  'SetInt'
+)
+
+for pattern in "${request_required_patterns[@]}"; do
+  if ! rg -n "$pattern" "${request_contract_docs[@]}" >/dev/null; then
+    echo "required request contract pattern missing: $pattern" >&2
     exit 1
   fi
 done

@@ -27,7 +27,7 @@ schema := batchflow.NewSQLSchema(
 
 for i := 0; i < 1000; i++ {
 	req := batchflow.NewRequest(schema).
-		SetInt64("id", int64(i)).
+		SetUint64("id", uint64(i)).
 		SetString("name", fmt.Sprintf("user_%d", i)).
 		SetString("email", fmt.Sprintf("user_%d@example.com", i))
 
@@ -175,7 +175,34 @@ if err := flow.Close(); err != nil {
 }
 ```
 
+## Wait / Done
+
+```go
+go func() {
+	<-flow.Done()
+	log.Println("batchflow stopped")
+}()
+
+if err := flow.Wait(); err != nil {
+	return err
+}
+```
+
+适合“提交方”和“关闭方”不在同一个 goroutine 的场景。
+
+## Request 基础类型 setter
+
+```go
+req := batchflow.NewRequest(schema).
+	SetInt("retry_count", 3).
+	SetUint64("id", 42).
+	SetUint8("shard", 7).
+	SetBool("enabled", true)
+```
+
 说明：
 
 - 业务代码推荐始终调用 `Close()`，不要只依赖 `FlushInterval` 自然触发。
 - 如果你只是等待退出而不关闭输入，请用 `Wait()`。
+- `Done()` 适合做退出通知，不负责触发收尾。
+- 基础整数类型优先使用对应的 `SetInt...` / `SetUint...` 便捷方法；其他类型继续用 `Set(...)` 或现有 typed setter。

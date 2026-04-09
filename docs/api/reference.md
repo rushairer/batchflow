@@ -36,6 +36,25 @@ func (b *BatchFlow) Done() <-chan struct{}
 - `Wait` 只等待后台退出，不主动关闭输入。
 - `Done` 在后台 pipeline 退出时关闭。
 
+典型模式：
+
+```go
+if err := flow.Close(); err != nil {
+	return err
+}
+```
+
+```go
+go func() {
+	<-flow.Done()
+	log.Println("batchflow stopped")
+}()
+
+if err := flow.Wait(); err != nil {
+	return err
+}
+```
+
 ### PipelineConfig
 
 ```go
@@ -141,8 +160,16 @@ func (r *Request) Schema() SchemaInterface
 func (r *Request) Columns() map[string]any
 func (r *Request) Validate() error
 
+func (r *Request) SetInt(name string, value int) *Request
+func (r *Request) SetInt8(name string, value int8) *Request
+func (r *Request) SetInt16(name string, value int16) *Request
 func (r *Request) SetInt32(name string, value int32) *Request
 func (r *Request) SetInt64(name string, value int64) *Request
+func (r *Request) SetUint(name string, value uint) *Request
+func (r *Request) SetUint8(name string, value uint8) *Request
+func (r *Request) SetUint16(name string, value uint16) *Request
+func (r *Request) SetUint32(name string, value uint32) *Request
+func (r *Request) SetUint64(name string, value uint64) *Request
 func (r *Request) SetFloat32(name string, value float32) *Request
 func (r *Request) SetFloat64(name string, value float64) *Request
 func (r *Request) SetString(name string, value string) *Request
@@ -156,6 +183,7 @@ func (r *Request) Set(name string, value any) *Request
 注意：
 
 - 当前公开通用 setter 是 `Set(...)`，不是 `SetAny(...)`。
+- 基础整数类型优先使用对应的 `SetInt...` / `SetUint...` 便捷方法，减少调用侧手动转换。
 - `Validate()` 会验证 schema 声明的列是否全部赋值。
 
 ## 执行器
@@ -242,7 +270,7 @@ defer flow.Close()
 
 schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id", "name")
 req := batchflow.NewRequest(schema).
-	SetInt64("id", 1).
+	SetUint64("id", 1).
 	SetString("name", "alice")
 
 if err := flow.Submit(ctx, req); err != nil {

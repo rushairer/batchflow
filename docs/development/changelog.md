@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [v1.1.1] - 2026-04-09
+
+### 生命周期示例 / Request setter / 文档一致性补强
+- 生命周期：
+  - 新增可编译示例 `ExampleBatchFlow_Close` 与 `ExampleBatchFlow_Done`
+  - 补充 `Wait()` / `Done()` 契约测试：覆盖 `Close()` 后退出信号、重复关闭幂等、父上下文取消返回值
+- Request：
+  - 新增基础整数 setter：`SetInt`、`SetInt8`、`SetInt16`、`SetUint`、`SetUint8`、`SetUint16`、`SetUint32`、`SetUint64`
+  - 新增对应测试，确认列值类型不会被隐式改写
+- 文档：
+  - README、API 参考、示例指南同步新增 setter 与生命周期样例
+  - `docs-check` 新增对 `Done()`、`SetInt`、`SetUint64` 的契约检查
+
 ## [v1.1.0] - 2026-04-09
 
 ### API / Metrics / Docs 契约收敛

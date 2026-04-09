@@ -2,6 +2,8 @@ package batchflow_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -119,5 +121,68 @@ func TestBatchFlow_MetricsExtensions_ObserveFlushAndRejects(t *testing.T) {
 	}
 	if got, _ := reporter.lastRejectReason.Load().(string); got != "empty_request" {
 		t.Fatalf("expected empty_request reject reason, got %q", got)
+	}
+}
+
+func TestBatchFlow_DoneClosesAndWaitReturnsNilAfterClose(t *testing.T) {
+	ctx := context.Background()
+	cfg := batchflow.PipelineConfig{
+		BufferSize:    16,
+		FlushSize:     100,
+		FlushInterval: time.Hour,
+	}
+	b, _ := batchflow.NewBatchFlowWithMock(ctx, cfg)
+
+	schema := batchflow.NewSQLSchema("users", batchflow.ConflictIgnoreOperationConfig, "id")
+	if err := b.Submit(ctx, batchflow.NewRequest(schema).SetInt64("id", 1)); err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	done := b.Done()
+	select {
+	case <-done:
+		t.Fatalf("done should not be closed before shutdown")
+	default:
+	}
+
+	if err := b.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("done was not closed after close")
+	}
+
+	if err := b.Wait(); err != nil {
+		t.Fatalf("wait after close failed: %v", err)
+	}
+
+	if err := b.Close(); err != nil {
+		t.Fatalf("second close should be idempotent, got %v", err)
+	}
+}
+
+func TestBatchFlow_CloseReturnsContextCancellationAfterParentCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := batchflow.PipelineConfig{
+		BufferSize:    16,
+		FlushSize:     100,
+		FlushInterval: time.Hour,
+	}
+	b, _ := batchflow.NewBatchFlowWithMock(ctx, cfg)
+
+	cancel()
+
+	err := b.Close()
+	if err != nil && !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "context is canceled") {
+		t.Fatalf("close err=%v, want cancellation-related error", err)
+	}
+
+	select {
+	case <-b.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatalf("done was not closed after parent context cancellation")
 	}
 }

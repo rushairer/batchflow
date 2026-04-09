@@ -72,10 +72,10 @@ func main() {
 		"id", "name", "email",
 	)
 
-	req := batchflow.NewRequest(schema).
-		SetInt64("id", 1).
-		SetString("name", "alice").
-		SetString("email", "alice@example.com")
+req := batchflow.NewRequest(schema).
+	SetUint64("id", 1).
+	SetString("name", "alice").
+	SetString("email", "alice@example.com")
 
 	if err := flow.Submit(ctx, req); err != nil {
 		log.Fatal(err)
@@ -100,6 +100,25 @@ func main() {
 - `Wait()` 只等待退出，不主动关闭输入。
 - `Done()` 返回后台退出时关闭的只读通道。
 
+常见用法：
+
+```go
+if err := flow.Close(); err != nil {
+	return err
+}
+```
+
+```go
+go func() {
+	<-flow.Done()
+	log.Println("batchflow stopped")
+}()
+
+if err := flow.Wait(); err != nil {
+	return err
+}
+```
+
 ### Submit 与取消
 
 - `Submit` 会优先检查调用方 `ctx.Err()`。
@@ -112,6 +131,13 @@ func main() {
 - 一次 flush 内部会再按 `SchemaInterface` 分组。
 - 每个 schema 组都会调用一次 `BatchExecutor.ExecuteBatch(...)`。
 - `ObserveBatchSize(n)` 的语义是“单个 schema 执行批大小”，不是“整次 flush 输入大小”。
+
+### Request 赋值
+
+- `NewRequest(schema)` 返回可链式构建的请求对象。
+- 常用整数 setter 现在覆盖 `SetInt`、`SetInt8`、`SetInt16`、`SetInt32`、`SetInt64`、`SetUint`、`SetUint8`、`SetUint16`、`SetUint32`、`SetUint64`。
+- 其他基础类型继续使用 `SetFloat32`、`SetFloat64`、`SetString`、`SetBool`、`SetTime`、`SetBytes`、`SetNull`。
+- 遇到未封装类型时，使用 `Set(name, value)`。
 
 ## 推荐入口
 
