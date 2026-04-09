@@ -228,46 +228,29 @@ jobs:
     - name: Generate changelog
       run: |
         VERSION="${{ needs.pre-release-validation.outputs.version }}"
-        
-        # 获取上一个标签
+
+        NOTES_FILE="docs/development/release-notes-${VERSION}.md"
+        if [ -f "$NOTES_FILE" ]; then
+          cp "$NOTES_FILE" CHANGELOG.md
+          exit 0
+        fi
+
         PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-        
-        echo "# Release Notes for $VERSION" > CHANGELOG.md
+
+        echo "# BatchFlow $VERSION" > CHANGELOG.md
         echo "" >> CHANGELOG.md
         echo "Release Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> CHANGELOG.md
         echo "" >> CHANGELOG.md
-        
+
         if [ -n "$PREVIOUS_TAG" ]; then
           echo "## Changes since $PREVIOUS_TAG" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          
-          # 生成提交日志
           git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG.md
         else
           echo "## Initial Release" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "This is the initial release of BatchFlow." >> CHANGELOG.md
         fi
-        
-        echo "" >> CHANGELOG.md
-        echo "## Test Results" >> CHANGELOG.md
-        echo "- ✅ All unit tests passed" >> CHANGELOG.md
-        echo "- ✅ MySQL integration tests passed" >> CHANGELOG.md
-        echo "- ✅ PostgreSQL integration tests passed" >> CHANGELOG.md
-        echo "- ✅ Redis integration tests passed" >> CHANGELOG.md
-        echo "- ✅ Monitoring system tests passed" >> CHANGELOG.md
-        echo "- ⚠️ SQLite tests show expected architectural limitations" >> CHANGELOG.md
-        echo "" >> CHANGELOG.md
-        echo "## Features" >> CHANGELOG.md
-        echo "- 🚀 Multi-database support: MySQL, PostgreSQL, SQLite, Redis" >> CHANGELOG.md
-        echo "- 📊 Prometheus + Grafana monitoring integration" >> CHANGELOG.md
-        echo "- 📚 Complete documentation system in docs/ directory" >> CHANGELOG.md
-        echo "- 🧪 Comprehensive test suite with 95%+ pass rate" >> CHANGELOG.md
-        echo "" >> CHANGELOG.md
-        echo "## Installation" >> CHANGELOG.md
-        echo '```bash' >> CHANGELOG.md
-        echo "go get github.com/rushairer/batchflow@$VERSION" >> CHANGELOG.md
-        echo '```' >> CHANGELOG.md
 
     - name: Upload changelog
       uses: actions/upload-artifact@v4

@@ -59,8 +59,8 @@ func (r *PrometheusMetricsReporter) ObserveExecuteDuration(table string, n int, 
 	}
 	// 记录执行耗时（按状态区分）
 	r.prometheusMetrics.RecordExecuteDuration(r.database, r.instanceID, status, d)
-	// 同时记录批大小
-	r.prometheusMetrics.RecordBatchSize(r.database, r.instanceID, n)
+	_ = table
+	_ = n
 }
 
 // ObserveBatchSize 单独记录批次大小（某些场景可能独立调用）

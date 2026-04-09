@@ -46,9 +46,23 @@ func (*NoopMetricsReporter) DecInflight()                                       
 // - 若未实现，则回退到现有 MetricsReporter 的近似指标或直接忽略（保持向后兼容）。
 type PipelineMetricsReporter interface {
 	// 出队/取用等待时长（元素在队列中的等待时间）
+	// 当前由 BatchFlow 在入队成功后自采样并在 flush 开始时上报，
+	// 不依赖 go-pipeline 的 MetricsHook。
 	ObserveDequeueLatency(d time.Duration)
 	// 管道处理总耗时（与执行器/数据库层的 ObserveExecuteDuration 区分）
 	ObserveProcessDuration(d time.Duration, status string)
 	// 丢弃/拒绝计数（如队列满、背压拒绝等）
 	IncDropped(reason string)
+}
+
+// BatchFlowMetricsReporter 是 BatchFlow 自身流程指标的可选扩展接口。
+// 这些指标不属于执行器层，也不依赖 go-pipeline 的原生 MetricsHook，
+// 仅在实现方显式选择时才会上报。
+type BatchFlowMetricsReporter interface {
+	// IncSubmitRejected 记录 Submit 被拒绝的次数与原因。
+	IncSubmitRejected(reason string)
+	// ObservePipelineFlushSize 记录一次 pipeline flush 收到的请求数。
+	ObservePipelineFlushSize(n int)
+	// ObserveSchemaGroupsPerFlush 记录一次 flush 被拆成的 schema 组数。
+	ObserveSchemaGroupsPerFlush(n int)
 }

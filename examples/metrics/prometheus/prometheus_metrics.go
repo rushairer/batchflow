@@ -38,13 +38,16 @@ type Metrics struct {
 	registry *prometheus.Registry
 
 	// Counter
-	totalErrors *prometheus.CounterVec
+	totalErrors         *prometheus.CounterVec
+	submitRejectedTotal *prometheus.CounterVec
 
 	// Histogram
-	enqueueLatency   *prometheus.HistogramVec
-	assembleDuration *prometheus.HistogramVec
-	executeDuration  *prometheus.HistogramVec
-	batchSize        *prometheus.HistogramVec
+	enqueueLatency       *prometheus.HistogramVec
+	assembleDuration     *prometheus.HistogramVec
+	executeDuration      *prometheus.HistogramVec
+	batchSize            *prometheus.HistogramVec
+	pipelineFlushSize    *prometheus.HistogramVec
+	schemaGroupsPerFlush *prometheus.HistogramVec
 
 	// Gauge
 	executorConcurrency *prometheus.GaugeVec
@@ -82,10 +85,13 @@ func NewMetrics(opts Options) *Metrics {
 	reg := prometheus.NewRegistry()
 
 	labelsErrors := []string{"database", "error_type"}
+	labelsRejected := []string{"database", "reason"}
 	labelsEnqueue := []string{"database"}
 	labelsAssemble := []string{"database"}
 	labelsExecute := []string{"database"}
 	labelsBatchSize := []string{"database"}
+	labelsFlushSize := []string{"database"}
+	labelsSchemaGroups := []string{"database"}
 	labelsConcurrency := []string{"database"}
 	labelsQueue := []string{"database"}
 	labelsInflight := []string{"database"}
@@ -95,10 +101,13 @@ func NewMetrics(opts Options) *Metrics {
 
 	if opts.IncludeInstanceID {
 		labelsErrors = append(labelsErrors[:1], append([]string{"instance_id"}, labelsErrors[1:]...)...)
+		labelsRejected = append(labelsRejected[:1], append([]string{"instance_id"}, labelsRejected[1:]...)...)
 		labelsEnqueue = append(labelsEnqueue, "instance_id")
 		labelsAssemble = append(labelsAssemble, "instance_id")
 		labelsExecute = append(labelsExecute, "instance_id")
 		labelsBatchSize = append(labelsBatchSize, "instance_id")
+		labelsFlushSize = append(labelsFlushSize, "instance_id")
+		labelsSchemaGroups = append(labelsSchemaGroups, "instance_id")
 		labelsConcurrency = append(labelsConcurrency, "instance_id")
 		labelsQueue = append(labelsQueue, "instance_id")
 		labelsInflight = append(labelsInflight, "instance_id")
@@ -121,6 +130,16 @@ func NewMetrics(opts Options) *Metrics {
 				ConstLabels: cl,
 			},
 			labelsErrors,
+		),
+		submitRejectedTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "submit_rejected_total",
+				Help:        "Total number of rejected Submit attempts",
+				ConstLabels: cl,
+			},
+			labelsRejected,
 		),
 		enqueueLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -165,6 +184,28 @@ func NewMetrics(opts Options) *Metrics {
 				ConstLabels: cl,
 			},
 			labelsBatchSize,
+		),
+		pipelineFlushSize: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "pipeline_flush_size",
+				Help:        "Number of requests received by a single pipeline flush",
+				Buckets:     opts.BatchSizeBuckets,
+				ConstLabels: cl,
+			},
+			labelsFlushSize,
+		),
+		schemaGroupsPerFlush: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "schema_groups_per_flush",
+				Help:        "Number of schema groups produced from a single pipeline flush",
+				Buckets:     prometheus.ExponentialBuckets(1, 2, 8),
+				ConstLabels: cl,
+			},
+			labelsSchemaGroups,
 		),
 		executorConcurrency: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -237,10 +278,13 @@ func NewMetrics(opts Options) *Metrics {
 	// 注册核心指标
 	reg.MustRegister(
 		m.totalErrors,
+		m.submitRejectedTotal,
 		m.enqueueLatency,
 		m.assembleDuration,
 		m.executeDuration,
 		m.batchSize,
+		m.pipelineFlushSize,
+		m.schemaGroupsPerFlush,
 		m.executorConcurrency,
 		m.queueLength,
 		m.inflightBatches,
@@ -307,6 +351,19 @@ func (m *Metrics) incError(database, instanceID, reason string) {
 	m.totalErrors.WithLabelValues(labels...).Inc()
 }
 
+func (m *Metrics) incSubmitRejected(database, instanceID, reason string) {
+	if m.submitRejectedTotal == nil {
+		return
+	}
+	var labels []string
+	if hasLabel(m.submitRejectedTotal, "instance_id") {
+		labels = []string{database, instanceID, reason}
+	} else {
+		labels = []string{database, reason}
+	}
+	m.submitRejectedTotal.WithLabelValues(labels...).Inc()
+}
+
 func (m *Metrics) observeEnqueue(database, instanceID string, d time.Duration) {
 	var labels []string
 	if hasLabel(m.enqueueLatency, "instance_id") {
@@ -353,15 +410,27 @@ func (m *Metrics) observeExecute(database, instanceID, table string, n int, d ti
 		labels = []string{database}
 	}
 	m.executeDuration.WithLabelValues(labels...).Observe(d.Seconds())
+	_ = n
+}
 
-	// 同时记录批大小
-	var bsLabels []string
-	if hasLabel(m.batchSize, "instance_id") {
-		bsLabels = []string{database, instanceID}
+func (m *Metrics) observePipelineFlushSize(database, instanceID string, n int) {
+	var labels []string
+	if hasLabel(m.pipelineFlushSize, "instance_id") {
+		labels = []string{database, instanceID}
 	} else {
-		bsLabels = []string{database}
+		labels = []string{database}
 	}
-	m.batchSize.WithLabelValues(bsLabels...).Observe(float64(n))
+	m.pipelineFlushSize.WithLabelValues(labels...).Observe(float64(n))
+}
+
+func (m *Metrics) observeSchemaGroups(database, instanceID string, n int) {
+	var labels []string
+	if hasLabel(m.schemaGroupsPerFlush, "instance_id") {
+		labels = []string{database, instanceID}
+	} else {
+		labels = []string{database}
+	}
+	m.schemaGroupsPerFlush.WithLabelValues(labels...).Observe(float64(n))
 }
 
 func (m *Metrics) setConcurrency(database, instanceID string, n int) {

@@ -7,7 +7,7 @@
   docker-mysql-test-with-monitoring docker-postgres-test-with-monitoring docker-sqlite-test-with-monitoring docker-redis-test-with-monitoring docker-all-tests-with-monitoring \
   deps deps-update \
   monitoring monitoring-foreground monitoring-stop monitoring-status monitoring-logs monitoring-cleanup \
-  dev-setup fmt lint clean clean-all benchmark docs ci release-check docker-build docker-test quick-test full-test dev info cover
+  dev-setup fmt lint clean clean-all benchmark docs docs-check ci release-check docker-build docker-test quick-test full-test dev info cover
 
 # 默认目标
 help: ## 显示帮助信息
@@ -68,6 +68,7 @@ help: ## 显示帮助信息
 	@echo "ℹ️ 其他:"
 	@echo "  \033[36mdev-setup\033[0m             设置开发环境"
 	@echo "  \033[36mdocs\033[0m                  生成/预览文档"
+	@echo "  \033[36mdocs-check\033[0m            检查关键文档是否引用过期 API/指标"
 	@echo "  \033[36minfo\033[0m                  显示项目信息"
 
 # 构建相关
@@ -209,11 +210,14 @@ fmt: ## 格式化代码
 
 lint: ## 运行代码检查
 	@echo "🔍 运行代码检查..."
-	@if command -v golangci-lint >/dev/null 2>&1; then \
+	@LINTER="$$(go env GOPATH)/bin/golangci-lint"; \
+	if [ -x "$$LINTER" ]; then \
+		"$$LINTER" run; \
+	elif command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run; \
 	else \
 		echo "⚠️ golangci-lint 未安装，跳过代码检查"; \
-		echo "💡 安装方法: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+		echo "💡 安装方法: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"; \
 	fi
 
 # 清理相关
@@ -242,12 +246,17 @@ docs: ## 生成文档
 		echo "💡 安装方法: go install golang.org/x/tools/cmd/godoc@latest"; \
 	fi
 
+docs-check: ## 检查关键文档与当前 API/指标契约是否一致
+	@echo "📘 检查关键文档一致性..."
+	@chmod +x ./scripts/check-doc-consistency.sh
+	@./scripts/check-doc-consistency.sh
+
 # CI/CD 相关
-ci: deps fmt lint test test-race ## CI 流程（依赖安装 + 格式化 + 代码检查 + 测试）
+ci: deps fmt lint docs-check test test-race ## CI 流程（依赖安装 + 格式化 + 文档检查 + 代码检查 + 测试）
 	@echo "🚀 CI 流程完成 - 所有检查通过"
 
 # 发布相关
-release-check: lint test  ## 发布前检查
+release-check: docs-check lint test  ## 发布前检查
 	@echo "🔍 发布前检查..."
 	@echo "✅ 测试通过"
 	@echo "✅ 代码检查通过"
@@ -263,10 +272,10 @@ docker-test: ## 在 Docker 中运行测试
 	docker run --rm -v $(PWD):/app -w /app golang:1.21 make test
 
 # 快捷命令组合
-quick-test: fmt test ## 快速测试（格式化 + 单元测试）
+quick-test: fmt docs-check test ## 快速测试（格式化 + 文档检查 + 单元测试）
 	@echo "⚡ 快速测试完成"
 
-full-test: fmt test test-race test-integration ## 完整测试套件
+full-test: fmt docs-check test test-race test-integration ## 完整测试套件
 	@echo "🎉 完整测试套件完成"
 
 dev: monitoring test-integration-with-monitoring ## 开发模式（启动监控 + 集成测试）

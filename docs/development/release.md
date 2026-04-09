@@ -1,184 +1,104 @@
-# 🚀 BatchFlow v1.0.0-alpha.0 发布文档
+# BatchFlow 发布评估
 
-## 📋 版本信息
+## 当前结论
 
-**当前版本**: v1.0.0-alpha.0  
-**发布日期**: 2025-10-03  
-**发布状态**: ✅ Alpha 版本就绪  
+可以发新版，但建议先按 `v1.1.0` 作为下一个版本号完成一次标准发布收尾，再打 tag。
 
-## 🎯 版本目标
+当前最新 tag：
 
-v1.0.0-alpha.0 是 BatchFlow 项目的首个 Alpha 版本，旨在提供：
+- `v1.0.3`
 
-- 核心通用批量处理功能
-- 多种驱动支持 (MySQL, PostgreSQL, SQLite, Redis 等数据库，以及自定义驱动)
-- 高性能异步处理架构
-- 基础 API 和使用示例
-- 完整的测试覆盖
+推荐下一个版本：
 
-## ✅ 核心功能
+- `v1.1.0`
 
-### 批量处理引擎
-- [x] 基于 `go-pipeline` 的异步批量处理
-- [x] 智能 Schema 分组优化
-- [x] 指针传递内存优化
-- [x] 并发安全的请求提交
+## 为什么是 `v1.1.0`
 
-### 数据库支持
-- [x] MySQL 驱动支持
-- [x] PostgreSQL 驱动支持  
-- [x] SQLite 驱动支持
-- [x] Redis 驱动支持
-- [x] 冲突策略支持 (Ignore, Replace, Update)
+按照 semver 的判断，这次变更更适合次版本，不适合补丁版本，也还不到主版本：
 
-### 架构设计
-- [x] 模块化三层架构 (BatchFlow → Executor → Processor → Driver)
-- [x] 统一 BatchExecutor 接口
-- [x] 可选并发限流支持
-- [x] 指标监控接口 (MetricsReporter)
+### 不是 `v1.0.4`
 
-### 代码质量
-- [x] Go 1.23+ 最佳实践
-- [x] golangci-lint 检查通过 (0 issues)
-- [x] 完整的单元测试覆盖
-- [x] 集成测试验证
+因为这次不是单纯修 bug，还新增了公开能力：
 
-## 📊 性能表现
+- `BatchFlow.Close()`
+- `BatchFlow.Wait()`
+- `BatchFlow.Done()`
+- `BatchFlowMetricsReporter`
+- 新的官方 metrics 契约和官方示例
+- 新的 `docs-check` 文档一致性校验
 
-### 基准测试结果
-- **BatchFlow Submit**: 7.5M ops/sec, 147.2 ns/op, 96 B/op
-- **Request Creation**: 61M ops/sec, 18.95 ns/op, 48 B/op  
-- **SQL Generation**: 69M ops/sec, 17.02 ns/op, 48 B/op
+这属于向后兼容的新功能，应该提升 minor 版本。
 
-### 集成测试通过率
-| 数据库 | 测试数量 | 通过率 | 状态 |
-|--------|----------|--------|------|
-| MySQL | 5 | 100% | ✅ 优秀 |
-| PostgreSQL | 5 | 100% | ✅ 优秀 |
-| SQLite | 5 | 80% | ✅ 正常* |
-| Redis | 5 | 100% | ✅ 优秀 |
-| **总计** | 20 | 95% | ✅ 优秀 |
+### 不是 `v2.0.0`
 
-*SQLite 失败为数据库引擎架构限制，非项目问题
+因为当前没有发现必须按“公开 Go API 破坏性变更”处理的内容：
 
-## 📚 文档状态
+- 现有构造函数还在
+- 现有执行器接口还在
+- 现有核心 metrics 接口还在
+- 现有模块路径没有变
 
-### 已完成文档
-- [x] README.md 完整使用指南
-- [x] API 参考文档
-- [x] 配置指南
-- [x] 架构设计文档
-- [x] 使用示例集合
-- [x] 测试指南
-- [x] 监控指南
-- [x] 故障排除指南
+虽然 metrics 语义比以前更严格了，`batch_size` 的统计口径也修正了，但这更像“修正错误语义 + 明确契约”，还不足以单独推到 major。
 
-### 文档质量评估
-- **完整性**: 8/10 - 覆盖所有核心功能
-- **准确性**: 9/10 - 与代码实现保持同步
-- **易用性**: 8/10 - 提供丰富示例和最佳实践
+## 发布内容摘要
 
-## 🔧 API 稳定性
+### API / 生命周期
 
-### 稳定 API
-- `BatchFlow` 核心接口
-- `Schema` 和 `Request` 数据结构
-- `BatchExecutor` 执行器接口
-- 数据库工厂方法 (`NewMySQLBatchFlow` 等)
+- `BatchFlow` 现在有完整生命周期：
+  - `Close()`
+  - `Wait()`
+  - `Done()`
+- `Close()` 会停止接收新请求、触发最终 flush 并等待后台退出。
 
-### 实验性 API
-- `MetricsReporter` 接口 (可能在后续版本调整)
-- 并发限流配置 (API 可能优化)
+### Metrics
 
-## 🚀 发布检查清单
+- 新增 `BatchFlowMetricsReporter`。
+- `ObserveDequeueLatency` 从“文档预留”变成真实采样。
+- 新增指标语义：
+  - `submit_rejected_total`
+  - `pipeline_flush_size`
+  - `schema_groups_per_flush`
+- 修正 `batch_size` 语义，只表示单个 schema 执行批大小。
 
-### ✅ 代码质量
-- [x] 所有单元测试通过
-- [x] 集成测试通过率 ≥ 95%
-- [x] golangci-lint 静态检查通过
-- [x] go vet 分析通过
-- [x] 代码覆盖率 ≥ 75%
+### 文档
 
-### ✅ 功能完整性
-- [x] 核心批量处理功能稳定
-- [x] 多数据库驱动正常工作
-- [x] 错误处理机制完善
-- [x] 监控指标接口可用
+- README、API 参考、配置说明、监控文档、示例文档全部切到当前实现口径。
+- 新增 `docs/guides/metrics-spec.md` 作为指标语义 source of truth。
 
-### ✅ 文档完整性
-- [x] API 文档完整
-- [x] 使用示例充足
-- [x] 架构设计清晰
-- [x] 部署指南可用
+### 工程防线
 
-### ✅ 性能验证
-- [x] 基准测试通过
-- [x] 内存使用优化
-- [x] 并发性能验证
-- [x] 大数据量测试
+- 新增 `make docs-check`
+- 新增 `scripts/check-doc-consistency.sh`
 
-## 🎯 发布决策
+## 发布前检查
 
-**结论**: ✅ **批准发布 v1.0.0-alpha.0**
+### 已完成
 
-**发布理由**:
-1. 核心功能完整且稳定
-2. 多数据库支持验证通过
-3. 性能表现优异
-4. 代码质量达标
-5. 文档体系完整
+- [x] `go test ./...`
+- [x] `go test -run '^$' ./...`
+- [x] `make docs-check`
+- [x] `make lint`
+- [x] `make release-check`
+- [x] 已在打 tag 前再次执行 `make release-check`
+- [x] changelog 已记录本轮 API / metrics / docs 收敛变更
+- [x] release notes 草案已生成：`docs/development/release-notes-v1.1.0.md`
 
-**Alpha 版本说明**:
-- 适合早期采用者和技术评估
-- API 相对稳定，但可能有小幅调整
-- 欢迎社区反馈和贡献
-- 为 Beta 版本奠定基础
+### 建议在打 tag 前再做一次
 
-## 📅 后续版本规划
+- [ ] 如需对外展示监控面板，对官方 dashboard 再做一次人工 smoke check
+- [x] 审查 `docs/development/changelog.md` 中 Unreleased 是否只保留本次准备发布的内容
 
-### v1.0.0-beta.0 (计划 4-6 周后)
-**目标**:
-- 基于 Alpha 版本反馈优化 API
-- 完善错误处理和重试机制
-- 增强监控和可观测性
-- 提升文档质量
+## 建议的发布动作
 
-**发布条件**:
-- 社区反馈处理完成
-- API 稳定性验证
-- 性能回归测试通过
-- 生产环境验证案例
+1. 确认工作区只包含本次要发布的变更。
+2. 运行：
+   - `make docs-check`
+   - `go test ./...`
+   - `make lint`
+3. 将 changelog 中本次内容从 `Unreleased` 收口到正式版本段。
+4. 创建 tag：`v1.1.0`
+5. 生成 release notes。
 
-### v1.0.0 (正式版，计划 2-3 个月后)
-**目标**:
-- API 完全稳定
-- 生产环境验证充分
-- 完整的向后兼容保证
-- 企业级支持文档
+## 建议的 release notes 标题
 
-## 📈 质量指标
-
-| 维度 | 评分 | 状态 |
-|------|------|------|
-| 架构设计 | 9/10 | ✅ 优秀 |
-| 代码质量 | 8/10 | ✅ 良好 |
-| 功能完整性 | 8/10 | ✅ 完整 |
-| 性能表现 | 9/10 | ✅ 优异 |
-| 测试覆盖 | 8/10 | ✅ 良好 |
-| 文档质量 | 8/10 | ✅ 良好 |
-
-**综合评分**: 8.3/10
-
-## 🔗 相关资源
-
-- **项目仓库**: https://github.com/rushairer/batchflow
-- **文档中心**: [docs/](../index.md)
-- **API 参考**: [docs/api/reference.md](../api/reference.md)
-- **使用示例**: [docs/guides/examples.md](../guides/examples.md)
-- **问题反馈**: GitHub Issues
-
----
-
-**最后更新**: 2025-10-03  
-**发布负责人**: BatchFlow 开发团队  
-**版本状态**: v1.0.0-alpha.0 ✅ 就绪发布
+`v1.1.0: 生命周期补齐、metrics 契约收敛、文档一致性重构`

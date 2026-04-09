@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [v1.1.0] - 2026-04-09
+
+### API / Metrics / Docs 契约收敛
+- 生命周期：
+  - `BatchFlow` 新增 `Close()`、`Wait()`、`Done()`，补齐公开生命周期契约
+  - `Close()` 负责停止接收输入、触发最终 flush 并等待后台退出
+- 指标语义：
+  - 新增可选扩展接口 `BatchFlowMetricsReporter`
+  - 新增真实队列等待采样：`ObserveDequeueLatency` 不再只是预留接口
+  - 新增 `submit_rejected_total`、`pipeline_flush_size`、`schema_groups_per_flush`
+  - 明确 `batch_size` 仅表示单个 schema 执行批大小，不再与整次 flush 输入量混用
+  - reporter 示例修正：`ObserveExecuteDuration` 不再顺手重复记录 `batch_size`
+- 文档：
+  - README、API 参考、配置说明、示例、监控文档重写为当前实现口径
+  - 新增 `docs/guides/metrics-spec.md` 作为指标语义 source of truth
+  - 新增 `make docs-check` 与 `scripts/check-doc-consistency.sh`，阻止关键文档继续引用过期 API/指标
+
 ### 2025-12-02 - 指标体系升级
 - 标签体系重构：
   - 引入 `instance_id` 标签替代 `test_name`，支持多实例隔离

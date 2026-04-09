@@ -3,6 +3,8 @@ package batchflow
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,10 +27,20 @@ import (
 - WithConcurrencyLimit：通过信号量限制 ExecuteBatch 并发，避免攒批后同时冲击数据库（limit <= 0 等价于不限流）
 */
 type BatchFlow struct {
-	pipeline        *gopipeline.StandardPipeline[*Request] // 异步批量处理管道
-	executor        BatchExecutor                          // 批量执行器（数据库特定）
-	metricsReporter MetricsReporter                        // 指标上报器（默认 Noop）
-	closed          atomic.Bool                            // 当创建时上下文被取消后置为 true，拒绝后续提交
+	pipeline        *gopipeline.StandardPipeline[*queuedRequest] // 异步批量处理管道
+	executor        BatchExecutor                                // 批量执行器（数据库特定）
+	metricsReporter MetricsReporter                              // 指标上报器（默认 Noop）
+	closed          atomic.Bool                                  // 当创建时上下文被取消后置为 true，拒绝后续提交
+	closeOnce       sync.Once
+	done            chan struct{}
+
+	runErrMu sync.RWMutex
+	runErr   error
+}
+
+type queuedRequest struct {
+	request    *Request
+	enqueuedAt time.Time
 }
 
 // NewBatchFlow 创建 BatchFlow 实例
@@ -54,10 +66,11 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 	batchFlow := &BatchFlow{
 		executor:        executor,
 		metricsReporter: reporter,
+		done:            make(chan struct{}),
 	}
 
 	// 创建 flush 函数，使用批量执行器处理数据
-	flushFunc := func(ctx context.Context, batchData []*Request) (err error) {
+	flushFunc := func(ctx context.Context, batchData []*queuedRequest) (err error) {
 		// 管道级处理耗时（与执行器级 ObserveExecuteDuration 区分）
 		processStart := time.Now()
 		defer func() {
@@ -70,11 +83,32 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 				pmr.ObserveProcessDuration(time.Since(processStart), status)
 			}
 		}()
+
+		if pmr, ok := batchFlow.metricsReporter.(PipelineMetricsReporter); ok && pmr != nil {
+			now := time.Now()
+			for _, item := range batchData {
+				if item == nil || item.enqueuedAt.IsZero() {
+					continue
+				}
+				pmr.ObserveDequeueLatency(now.Sub(item.enqueuedAt))
+			}
+		}
+
+		if bmr, ok := batchFlow.metricsReporter.(BatchFlowMetricsReporter); ok && bmr != nil {
+			bmr.ObservePipelineFlushSize(len(batchData))
+		}
 		// 按schema分组处理
 		schemaGroups := make(map[SchemaInterface][]*Request)
-		for _, request := range batchData {
+		for _, item := range batchData {
+			if item == nil || item.request == nil {
+				continue
+			}
+			request := item.request
 			schema := request.Schema()
 			schemaGroups[schema] = append(schemaGroups[schema], request)
+		}
+		if bmr, ok := batchFlow.metricsReporter.(BatchFlowMetricsReporter); ok && bmr != nil {
+			bmr.ObserveSchemaGroupsPerFlush(len(schemaGroups))
 		}
 
 		// 处理每个schema组
@@ -134,7 +168,8 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 	// 预留：挂接 go-pipeline v2.2.0 的 WithMetrics 到我们的 Reporter 扩展接口
 	attachPipelineMetrics(pipeline, reporter)
 	go func() {
-		_ = pipeline.AsyncPerform(ctx)
+		defer close(batchFlow.done)
+		batchFlow.setRunErr(pipeline.AsyncPerform(ctx))
 	}()
 	// 标记管道生命周期：创建时 ctx 一旦取消，后续 Submit 均应拒绝
 	go func() {
@@ -154,25 +189,31 @@ func (b *BatchFlow) ErrorChan(size int) <-chan error {
 func (b *BatchFlow) Submit(ctx context.Context, request *Request) error {
 	// 优先尊重取消，避免 select 在多就绪时随机选择发送路径
 	if err := ctx.Err(); err != nil {
+		b.reportSubmitRejected(reasonFromContextErr(err))
 		return err
 	}
 	// 若 BatchFlow 所属生命周期已结束（创建时的 ctx 已取消），直接拒绝提交
 	if b.closed.Load() {
+		b.reportSubmitRejected("batchflow_closed")
 		return context.Canceled
 	}
 
 	if request == nil {
+		b.reportSubmitRejected("empty_request")
 		return ErrEmptyRequest
 	}
 
 	schema := request.Schema()
 	if schema == nil {
+		b.reportSubmitRejected("invalid_schema")
 		return ErrInvalidSchema
 	}
 	if schema.Columns() == nil || len(schema.Columns()) == 0 {
+		b.reportSubmitRejected("missing_column")
 		return ErrMissingColumn
 	}
 	if len(schema.Name()) == 0 {
+		b.reportSubmitRejected("empty_schema_name")
 		return ErrEmptySchemaName
 	}
 
@@ -180,7 +221,7 @@ func (b *BatchFlow) Submit(ctx context.Context, request *Request) error {
 	enqueueStart := time.Now()
 
 	select {
-	case dataChan <- request:
+	case dataChan <- &queuedRequest{request: request, enqueuedAt: time.Now()}:
 		// 入队成功后记录入队耗时与队列长度
 		// 注意：len(dataChan) 是近似观测，仅用于指标参考
 		// 这里将耗时统计放在调用方路径内，默认 Noop 不引入开销
@@ -188,8 +229,30 @@ func (b *BatchFlow) Submit(ctx context.Context, request *Request) error {
 		b.metricsReporter.SetQueueLength(len(dataChan))
 		return nil
 	case <-ctx.Done():
+		b.reportSubmitRejected(reasonFromContextErr(ctx.Err()))
 		return ctx.Err()
 	}
+}
+
+// Close 停止接收新请求，触发最终 flush，并等待后台 pipeline 退出。
+// 它是幂等的；首次调用会关闭内部数据通道，后续调用仅等待同一个退出结果。
+func (b *BatchFlow) Close() error {
+	b.closeOnce.Do(func() {
+		b.closed.Store(true)
+		close(b.pipeline.DataChan())
+	})
+	return b.Wait()
+}
+
+// Wait 等待后台 pipeline 退出并返回最终运行结果。
+func (b *BatchFlow) Wait() error {
+	<-b.done
+	return b.getRunErr()
+}
+
+// Done 返回一个在 BatchFlow 后台 goroutine 退出时关闭的信号。
+func (b *BatchFlow) Done() <-chan struct{} {
+	return b.done
 }
 
 // PipelineConfig 管道配置
@@ -292,4 +355,38 @@ func NewBatchFlowWithMockDriver(ctx context.Context, config PipelineConfig, sqlD
 	mockExecutor := NewMockExecutorWithDriver(sqlDriver)
 	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
 	return batchFlow, mockExecutor
+}
+
+func (b *BatchFlow) setRunErr(err error) {
+	// Close() 驱动的正常收尾返回 nil；构造上下文取消则保留原始错误，供 Wait/调用方判断。
+	b.runErrMu.Lock()
+	defer b.runErrMu.Unlock()
+	b.runErr = err
+}
+
+func (b *BatchFlow) getRunErr() error {
+	b.runErrMu.RLock()
+	defer b.runErrMu.RUnlock()
+	return b.runErr
+}
+
+func (b *BatchFlow) reportSubmitRejected(reason string) {
+	if reason == "" {
+		return
+	}
+	bmr, ok := b.metricsReporter.(BatchFlowMetricsReporter)
+	if ok && bmr != nil {
+		bmr.IncSubmitRejected(reason)
+	}
+}
+
+func reasonFromContextErr(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "context_deadline_exceeded"
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	default:
+		return "context_error"
+	}
 }

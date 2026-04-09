@@ -7,6 +7,7 @@ import (
 )
 
 // Reporter 实现 batchflow.MetricsReporter + batchflow.PipelineMetricsReporter
+// + batchflow.BatchFlowMetricsReporter
 // 将 BatchFlow 指标写入 Prometheus
 type Reporter struct {
 	m *Metrics
@@ -145,8 +146,35 @@ func (r *Reporter) IncDropped(reason string) {
 	r.m.pipelineDroppedTotal.WithLabelValues(labels...).Inc()
 }
 
+// ========== batchflow.BatchFlowMetricsReporter 接口实现（可选扩展）==========
+
+// IncSubmitRejected 记录 Submit 被拒绝的原因。
+func (r *Reporter) IncSubmitRejected(reason string) {
+	if r.m == nil {
+		return
+	}
+	r.m.incSubmitRejected(r.Database, r.InstanceID, reason)
+}
+
+// ObservePipelineFlushSize 记录一次 pipeline flush 接收到的请求数。
+func (r *Reporter) ObservePipelineFlushSize(n int) {
+	if r.m == nil {
+		return
+	}
+	r.m.observePipelineFlushSize(r.Database, r.InstanceID, n)
+}
+
+// ObserveSchemaGroupsPerFlush 记录一次 flush 拆出的 schema 组数。
+func (r *Reporter) ObserveSchemaGroupsPerFlush(n int) {
+	if r.m == nil {
+		return
+	}
+	r.m.observeSchemaGroups(r.Database, r.InstanceID, n)
+}
+
 // 确保实现接口
 var (
-	_ batchflow.MetricsReporter         = (*Reporter)(nil)
-	_ batchflow.PipelineMetricsReporter = (*Reporter)(nil)
+	_ batchflow.MetricsReporter          = (*Reporter)(nil)
+	_ batchflow.PipelineMetricsReporter  = (*Reporter)(nil)
+	_ batchflow.BatchFlowMetricsReporter = (*Reporter)(nil)
 )
