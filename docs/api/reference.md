@@ -121,7 +121,7 @@ func RegisterErrorClassifier(classifier ErrorClassifier) func()
 func ClassifyError(err error) (retryable bool, reason string)
 ```
 
-自定义 classifier 会在内置 MySQL/PostgreSQL 结构化错误识别之后、字符串 fallback 之前执行。
+自定义 classifier 会在内置 MySQL/PostgreSQL/Redis 结构化错误识别之后、字符串 fallback 之前执行。
 
 错误原因完整列表见 [Error Classification](../guides/error-classification.md)。
 

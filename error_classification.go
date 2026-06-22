@@ -8,6 +8,7 @@ import (
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -92,6 +93,9 @@ func ClassifyError(err error) (retryable bool, reason string) {
 		return retryable, reason
 	}
 	if retryable, reason, ok := classifyPostgreSQLError(err); ok {
+		return retryable, reason
+	}
+	if retryable, reason, ok := classifyRedisError(err); ok {
 		return retryable, reason
 	}
 	for _, classifier := range snapshotCustomErrorClassifiers() {
@@ -183,6 +187,17 @@ func classifyPostgreSQLError(err error) (retryable bool, reason string, ok bool)
 		return true, ErrorReasonConnection, true
 	default:
 		return false, ErrorReasonNonRetryable, true
+	}
+}
+
+func classifyRedisError(err error) (retryable bool, reason string, ok bool) {
+	switch {
+	case errors.Is(err, redis.Nil):
+		return false, ErrorReasonNonRetryable, true
+	case errors.Is(err, redis.TxFailedErr):
+		return true, ErrorReasonDeadlock, true
+	default:
+		return false, "", false
 	}
 }
 

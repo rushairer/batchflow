@@ -8,6 +8,7 @@ import (
 
 	mysqlerr "github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 	"github.com/rushairer/batchflow"
 )
 
@@ -163,6 +164,27 @@ func TestClassifyErrorPostgreSQLDriverCodes(t *testing.T) {
 				Message: "driver error",
 			})
 			retryable, reason := batchflow.ClassifyError(err)
+			if retryable != tt.retryable || reason != tt.reason {
+				t.Fatalf("ClassifyError() = (%v, %q), want (%v, %q)", retryable, reason, tt.retryable, tt.reason)
+			}
+		})
+	}
+}
+
+func TestClassifyErrorRedisErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		retryable bool
+		reason    string
+	}{
+		{name: "nil", err: redis.Nil, retryable: false, reason: batchflow.ErrorReasonNonRetryable},
+		{name: "tx failed", err: redis.TxFailedErr, retryable: true, reason: batchflow.ErrorReasonDeadlock},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			retryable, reason := batchflow.ClassifyError(fmt.Errorf("wrapped redis error: %w", tt.err))
 			if retryable != tt.retryable || reason != tt.reason {
 				t.Fatalf("ClassifyError() = (%v, %q), want (%v, %q)", retryable, reason, tt.retryable, tt.reason)
 			}

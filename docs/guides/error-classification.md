@@ -54,6 +54,7 @@ defer unregister()
 ```
 
 Registered classifiers run after built-in structured MySQL/PostgreSQL recognition and before the string fallback. This keeps database driver codes stable while allowing custom Redis, HTTP, queue, or storage backends to participate in the same retry and metrics reason dictionary.
+BatchFlow also recognizes built-in go-redis sentinel errors before custom classifiers.
 
 ## Label Discipline
 
@@ -88,5 +89,12 @@ BatchFlow classifies structured driver errors before falling back to normalized 
 | `1064` | `syntax` |
 
 Unknown structured database codes fall back to `non_retryable`.
+
+### Redis Sentinel Errors
+
+| Error | Reason |
+|---|---|
+| `redis.Nil` | `non_retryable` |
+| `redis.TxFailedErr` | `deadlock` |
 
 Adding new structured recognition must preserve the reason dictionary above unless a new low-cardinality reason is documented first.
