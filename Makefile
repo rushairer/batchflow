@@ -7,7 +7,7 @@
   docker-mysql-test-with-monitoring docker-postgres-test-with-monitoring docker-sqlite-test-with-monitoring docker-redis-test-with-monitoring docker-all-tests-with-monitoring \
   deps deps-update \
   monitoring monitoring-foreground monitoring-stop monitoring-status monitoring-logs monitoring-cleanup \
-  dev-setup fmt lint clean clean-all benchmark docs docs-check ci release-check docker-build docker-test quick-test full-test dev info cover
+  dev-setup fmt lint security examples-check clean clean-all benchmark docs docs-check ci release-check docker-build docker-test quick-test full-test dev info cover
 
 # 默认目标
 help: ## 显示帮助信息
@@ -51,6 +51,8 @@ help: ## 显示帮助信息
 	@echo "  \033[36mdeps-update\033[0m          更新依赖（go get -u + tidy）"
 	@echo "  \033[36mfmt\033[0m                  格式化代码"
 	@echo "  \033[36mlint\033[0m                 运行代码检查"
+	@echo "  \033[36msecurity\033[0m             运行 govulncheck 安全扫描"
+	@echo "  \033[36mexamples-check\033[0m       编译检查示例和工具包"
 	@echo "  \033[36mclean\033[0m                清理构建文件与缓存"
 	@echo "  \033[36mclean-all\033[0m            完全清理（含 docker system prune）"
 	@echo ""
@@ -220,6 +222,19 @@ lint: ## 运行代码检查
 		echo "💡 安装方法: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"; \
 	fi
 
+security: ## 运行 govulncheck 安全扫描
+	@echo "🔒 运行 govulncheck..."
+	@if command -v govulncheck >/dev/null 2>&1; then \
+		govulncheck ./...; \
+	else \
+		echo "⚠️ govulncheck 未安装，跳过本地安全扫描"; \
+		echo "💡 安装方法: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
+	fi
+
+examples-check: ## 编译检查示例和工具包
+	@echo "📦 编译检查示例和工具包..."
+	@go test -run '^$$' ./...
+
 # 清理相关
 clean: ## 清理构建文件和缓存
 	@echo "🧹 清理构建文件..."
@@ -252,11 +267,11 @@ docs-check: ## 检查关键文档与当前 API/指标契约是否一致
 	@./scripts/check-doc-consistency.sh
 
 # CI/CD 相关
-ci: deps fmt lint docs-check test test-race ## CI 流程（依赖安装 + 格式化 + 文档检查 + 代码检查 + 测试）
+ci: deps fmt lint docs-check examples-check test test-race ## CI 流程（依赖安装 + 格式化 + 文档检查 + 代码检查 + 测试）
 	@echo "🚀 CI 流程完成 - 所有检查通过"
 
 # 发布相关
-release-check: docs-check lint test  ## 发布前检查
+release-check: docs-check lint security examples-check test test-race cover  ## 发布前检查
 	@echo "🔍 发布前检查..."
 	@echo "✅ 测试通过"
 	@echo "✅ 代码检查通过"

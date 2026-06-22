@@ -37,9 +37,10 @@ jobs:
         fi
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache: true
 
     - name: Validate version format
       run: |
@@ -53,6 +54,8 @@ jobs:
     - name: Run full test suite
       run: |
         go mod download
+        go vet ./...
+        go test -run '^$' ./...
         make cover
         COVERAGE=$(cat coverage_total.txt)
         echo "Test coverage (main packages only): ${COVERAGE}%"
@@ -73,7 +76,7 @@ jobs:
         
         # 只测试 SQLite（最快）进行发布前验证
         docker compose -f docker-compose.ci.yml build sqlite sqlite-test --no-cache
-        docker compose -f docker-compose.ci.yml up sqlite sqlite-test --abort-on-container-exit --exit-code-from sqlite-test || true
+        docker compose -f docker-compose.ci.yml up sqlite sqlite-test --abort-on-container-exit --exit-code-from sqlite-test
 
   # 完整集成测试
   full-integration-tests:
@@ -172,9 +175,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
+        cache: true
 
     - name: Build for multiple platforms
       run: |

@@ -98,8 +98,8 @@ jobs:
           export REDIS_ADDR="host.docker.internal:6379"
         fi
         
-        # 运行测试
-        timeout 7200 docker compose -f docker-compose.ci.yml up ${{ matrix.database }} ${{ matrix.database }}-test --abort-on-container-exit --exit-code-from ${{ matrix.database }}-test || true
+        # MySQL/PostgreSQL/Redis nightly tests are gating. Failures should fail this job.
+        timeout 7200 docker compose -f docker-compose.ci.yml up ${{ matrix.database }} ${{ matrix.database }}-test --abort-on-container-exit --exit-code-from ${{ matrix.database }}-test
 
     - name: Extract performance reports
       run: |
@@ -146,7 +146,7 @@ jobs:
         export BUFFER_SIZE=20000
         export FLUSH_INTERVAL=50ms
         
-        # 运行测试并忽略退出码（SQLite 预期会有失败）
+        # SQLite stress is non-gating because high-concurrency writes are an expected SQLite limitation.
         docker compose -f docker-compose.ci.yml up sqlite sqlite-test --abort-on-container-exit --exit-code-from sqlite-test || true
 
     - name: Extract SQLite stress reports
@@ -210,7 +210,7 @@ jobs:
         echo "" >> performance_analysis.md
         
         echo "### SQLite Stress Test" >> performance_analysis.md
-        echo "⚠️ SQLite stress test completed (failures expected due to architectural limitations)" >> performance_analysis.md
+        echo "⚠️ SQLite stress test is non-gating; failures may reflect documented SQLite write-concurrency limitations" >> performance_analysis.md
         echo "" >> performance_analysis.md
         
         echo "## Recommendations" >> performance_analysis.md
