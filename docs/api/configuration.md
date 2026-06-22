@@ -104,6 +104,7 @@ Retry: batchflow.RetryConfig{
 
 - `MaxAttempts` 包含第一次执行。
 - 默认分类器把 `context.Canceled` / `context.DeadlineExceeded` 视为不可重试。
+- 默认 reason 来自 `batchflow.ClassifyError(err)`；自定义 `Classifier` 建议返回同一套低基数字典。
 - 如果你要区分内部超时和外部取消，请自定义 `Classifier`。
 
 ### MetricsReporter
@@ -116,7 +117,7 @@ Retry: batchflow.RetryConfig{
 
 ### Observability
 
-`ObservabilityConfig` 用于配置结构化日志、采样、脱敏和 tracing hook：
+`ObservabilityConfig` 用于配置结构化日志、采样和脱敏：
 
 ```go
 logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))

@@ -55,13 +55,38 @@
 
 常见 reason：
 
+- `context_canceled`
+- `context_deadline`
+- `duplicate_key`
 - `deadlock`
 - `lock_timeout`
 - `timeout`
 - `connection`
 - `io`
-- `context`
+- `syntax`
 - `non_retryable`
+- `unknown`
+
+`operation_errors_total`、`sql_errors_total` 和执行器 `errors_total` 应使用同一套 reason 字典。核心库通过 `batchflow.ClassifyError(err)` 生成默认分类；业务自定义 `RetryConfig.Classifier` 时，建议沿用这些常量，避免 label 发散。
+
+### 4. Operation / SQL Diagnostics
+
+| 指标 | 类型 | 语义 |
+|---|---|---|
+| `operation_errors_total` | Counter | backend-neutral operation 在生成、执行、重试或最终失败阶段的错误 |
+| `operation_generated_items` | Histogram | operation 生成前后的 item 数 |
+| `operation_generated_args` | Histogram | 每批生成的后端参数或命令数量 |
+| `sql_errors_total` | Counter | SQL validate/generate/execute 阶段错误 |
+| `sql_generated_rows` | Histogram | SQL 生成前后的行数 |
+| `sql_generated_args` | Histogram | SQL 参数数量 |
+| `sql_deduplicated_rows_total` | Counter | SQL conflict key 批内去重或合并行数 |
+
+约束：
+
+- `backend` 必须是低基数字段，例如 `sql`、`redis`、`custom` 或业务定义的少量后端名。
+- `stage` 使用 `validate`、`generate`、`execute`、`retry`、`final`。
+- `reason` 使用上面的错误原因字典。
+- `table` / `schema` 维度只有在业务确认基数可控时才开启。
 
 ## 重要区分
 

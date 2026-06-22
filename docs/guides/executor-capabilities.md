@@ -8,7 +8,7 @@
 核心接口
 ```go
 type BatchExecutor interface {
-    ExecuteBatch(ctx context.Context, schema *Schema, data []map[string]any) error
+    ExecuteBatch(ctx context.Context, schema SchemaInterface, data []map[string]any) error
 }
 
 // 自类型泛型接口：返回实现者类型 T，便于链式
@@ -56,6 +56,11 @@ _ = bexec.ExecuteBatch(ctx, schema, rows)
 NoopMetricsReporter 仍有必要
 - 兜底：当未设置/不支持时，保证指标调用安全（零开销）。
 - 消除判空分支：避免在热点路径写 if reporter != nil。
+
+通用 operation 诊断
+- 如果后端实现 `OperationPreviewer`，`ThrottledBatchExecutor` 会把 preview 用于结构化日志和 operation metrics。
+- `OperationPreview.Attributes` 只放低基数字段和计数，不放原始 SQL 参数、Redis key、HTTP body、用户标识。
+- 错误 reason 使用 `batchflow.ClassifyError(err)` 的低基数字典；自定义 retry classifier 也建议返回同一套 reason。
 
 迁移提示
 - 文档与示例从 MetricsProvider 迁移为：运行时只读探测（MetricsReporter()）+ 本地 Noop 兜底，不强制写回。

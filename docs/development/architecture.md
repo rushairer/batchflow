@@ -21,22 +21,23 @@ flowchart TB
 - 保持API一致性的同时避免过度抽象
 
 ### 2. 可选的抽象层
-- **BatchProcessor** 不是必须的，仅用于SQL数据库的代码复用
-- NoSQL数据库可直接实现 BatchExecutor，避免不必要的抽象层
+- **BatchProcessor** 不是必须的，用于复用“生成操作 + 执行操作 + retry/metrics/observer”的执行控制逻辑
+- SQL 和 Redis 默认使用 `ThrottledBatchExecutor + BatchProcessor`
+- 其他 NoSQL、HTTP、消息推送可以直接实现 `BatchExecutor`，也可以实现 `BatchProcessor` 后复用通用执行器
 - 测试环境使用 MockExecutor 直接实现
 
 ### 3. 职责分离
 - **BatchFlow**: 用户API和管道管理
 - **BatchExecutor**: 执行控制和指标收集
-- **BatchProcessor**: SQL数据库的核心处理逻辑（可选）
+- **BatchProcessor**: 后端操作生成和执行逻辑（可选）
 - **SQLDriver**: 数据库特定的SQL生成
 
 ## 📊 实现方式对比
 
 | 数据源类型 | 实现方式 | 架构路径 | 优势 |
 |-----------|---------|---------|------|
-| **SQL数据库**<br>(MySQL/PostgreSQL/SQLite) | ThrottledBatchExecutor（可选限流 WithConcurrencyLimit） + BatchProcessor + SQLDriver | BatchFlow → ThrottledBatchExecutor → BatchProcessor → SQLDriver → DB | 代码复用、标准化、易扩展、可节流 |
-| **NoSQL数据库**<br>(Redis/MongoDB) | 直接实现BatchExecutor | BatchFlow → CustomExecutor → DB | 避免抽象层、性能优化、灵活性 |
+| **SQL数据库**<br>(MySQL/PostgreSQL/SQLite) | ThrottledBatchExecutor（可选限流 WithConcurrencyLimit） + SQLBatchProcessor + SQLDriver | BatchFlow → ThrottledBatchExecutor → SQLBatchProcessor → SQLDriver → DB | 代码复用、标准化、易扩展、可节流 |
+| **NoSQL数据库**<br>(Redis/MongoDB) | Redis 默认使用 ThrottledBatchExecutor + RedisBatchProcessor；其他后端可直接实现 BatchExecutor | BatchFlow → ThrottledBatchExecutor/CustomExecutor → DB | 可复用通用执行控制，也可保留后端特化 |
 | **消息推送**<br>(钉钉机器人/微信/邮件) | 直接实现BatchExecutor | BatchFlow → CustomExecutor → API | 批量推送、错误重试、灵活配置 |
 | **API调用**<br>(REST/GraphQL) | 直接实现BatchExecutor | BatchFlow → CustomExecutor → HTTP | 批量请求、并发控制、统一处理 |
 | **测试环境** | MockExecutor | BatchFlow → MockExecutor → Memory | 快速测试、无依赖 |
@@ -54,16 +55,19 @@ gopipeline (异步批量处理)
     ↓
 ThrottledBatchExecutor.ExecuteBatch()
     ├── 可选并发限流（WithConcurrencyLimit）
-    ├── 指标收集
-    ├── 错误处理
-    └── 调用BatchProcessor
+    ├── 重试与退避（WithRetryConfig）
+    ├── 指标、结构化事件和错误分类
+    └── 调用 BatchProcessor
         ↓
-SQLBatchProcessor.ExecuteBatch()
-    ├── 调用SQLDriver生成SQL
-    ├── 执行数据库操作
-    └── 处理事务
+SQLBatchProcessor.GenerateOperations()
+    ├── GenerateSQLPreview()
+    ├── 调用 SQLDriver 生成最终 SQL
+    └── 返回 SQL 字符串和参数
         ↓
-SQLDriver.GenerateInsertSQL()
+SQLBatchProcessor.ExecuteOperations()
+    └── ExecContext 执行数据库操作
+        ↓
+SQLDriver.GenerateInsertSQL(ctx, schema, data)
     ├── MySQL: INSERT ... ON DUPLICATE KEY UPDATE
     ├── PostgreSQL: INSERT ... ON CONFLICT DO UPDATE
     └── SQLite: INSERT OR REPLACE
@@ -90,21 +94,20 @@ BatchFlow.Submit()
     ↓
 gopipeline (异步批量处理)
     ↓
-CustomExecutor.ExecuteBatch()
-    ├── 指标收集
-    ├── 错误处理
-    └── 直接数据库操作
+ThrottledBatchExecutor 或 CustomExecutor
+    ├── 使用 ThrottledBatchExecutor: 复用限流、重试、metrics、observer
+    └── 直接实现 BatchExecutor: 完全自定义执行控制
         ↓
-Database Client
-    ├── Redis: Pipeline操作
-    ├── MongoDB: BulkWrite操作
-    └── 其他NoSQL特定操作
+Database/API Client
+    ├── Redis: Pipeline 操作
+    ├── MongoDB: BulkWrite 操作
+    └── HTTP/API: 批量请求
 ```
 
-**优势：**
-- 性能优化：避免不必要的抽象层
-- 灵活性：可使用数据库特定的优化特性
-- 简洁性：减少代码层次
+**选择建议：**
+- 需要统一 retry、metrics、结构化日志：实现 `BatchProcessor`，交给 `ThrottledBatchExecutor`。
+- 已有成熟执行控制或需要完全自定义：直接实现 `BatchExecutor`。
+- 需要 dry-run/诊断：额外实现 `OperationPreviewer`，提供 backend、operation、fingerprint 和低基数 attributes。
 
 **适用场景：**
 - NoSQL数据库
@@ -119,7 +122,7 @@ Database Client
 ```go
 type TiDBDriver struct{}
 
-func (d *TiDBDriver) GenerateInsertSQL(schema batchflow.SchemaInterface, data []map[string]any) (string, []any, error) {
+func (d *TiDBDriver) GenerateInsertSQL(ctx context.Context, schema *batchflow.SQLSchema, data []map[string]any) (string, []any, error) {
     // TiDB特定的SQL生成逻辑
     return sql, args, nil
 }
@@ -153,7 +156,7 @@ func (e *MongoExecutor) ExecuteBatch(ctx context.Context, schema batchflow.Schem
     return err
 }
 
-func (e *MongoExecutor) WithMetricsReporter(reporter batchflow.MetricsReporter) batchflow.BatchExecutor {
+func (e *MongoExecutor) WithMetricsReporter(reporter batchflow.MetricsReporter) *MongoExecutor {
     e.metricsReporter = reporter
     return e
 }
@@ -172,7 +175,7 @@ func NewMongoBatchFlow(ctx context.Context, client *mongo.Client, config Pipelin
 ### BatchExecutor 接口
 ```go
 type BatchExecutor interface {
-    ExecuteBatch(ctx context.Context, schema *Schema, data []map[string]any) error
+    ExecuteBatch(ctx context.Context, schema SchemaInterface, data []map[string]any) error
 }
 // 说明：指标配置应在具体类型或能力接口上进行（如在 ThrottledBatchExecutor 上调用 WithMetricsReporter）。
 // 在仅持有 BatchExecutor 的通用路径，框架通过只读探测 MetricsReporter() 判断是否已有 Reporter；若无，则内部使用 Noop 兜底，不写回执行器。
@@ -186,19 +189,21 @@ type BatchExecutor interface {
 ### BatchProcessor 接口（可选）
 ```go
 type BatchProcessor interface {
-    ExecuteBatch(ctx context.Context, schema *Schema, data []map[string]any) error
+    GenerateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, error)
+    ExecuteOperations(ctx context.Context, operations Operations) error
 }
 ```
 
 **职责：**
-- SQL数据库的核心处理逻辑
-- 与 ThrottledBatchExecutor 配合使用
-- NoSQL数据库可跳过此层
+- 后端操作生成，例如 SQL 字符串、Redis command、HTTP request descriptor
+- 后端操作执行
+- 与 `ThrottledBatchExecutor` 配合使用，复用限流、重试、metrics、observer
+- 自定义后端可跳过此层，直接实现 `BatchExecutor`
 
 ### SQLDriver 接口
 ```go
 type SQLDriver interface {
-    GenerateInsertSQL(schema *Schema, data []map[string]any) (string, []any, error)
+    GenerateInsertSQL(ctx context.Context, schema *SQLSchema, data []map[string]any) (string, []any, error)
 }
 ```
 

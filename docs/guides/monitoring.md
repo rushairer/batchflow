@@ -104,7 +104,7 @@ defer flow.Close()
 
 - `backend`：`sql`、`redis`、`custom` 或自定义 backend。
 - `stage`：`validate`、`generate`、`execute`、`retry`、`final`。
-- `reason`：低基数错误分类，如 `timeout`、`connection`、`duplicate_key`、`other`。
+- `reason`：低基数错误分类，如 `timeout`、`connection`、`duplicate_key`、`non_retryable`。
 - `table`：仅在 `Options.IncludeTable=true` 时启用；对非 SQL 场景表示 schema 名。
 
 ### `operation_generated_items`
@@ -122,10 +122,28 @@ defer flow.Close()
 表示 SQL 生成或执行阶段的错误，标签包含：
 
 - `stage`：`validate`、`generate`、`execute`
-- `reason`：低基数错误分类，如 `duplicate_key`、`deadlock`、`timeout`、`connection`、`syntax`、`other`
+- `reason`：低基数错误分类，如 `duplicate_key`、`deadlock`、`timeout`、`connection`、`syntax`、`non_retryable`
 - `table`：仅在 `Options.IncludeTable=true` 时启用
 
 不要把原始 SQL 或参数值作为 Prometheus label。需要定位具体 SQL 时使用日志中的 `SQLPreview.Fingerprint` 或 `SQLError.SQLFingerprint`。
+
+### 错误原因字典
+
+执行器、结构化日志、`operation_errors_total` 和 `sql_errors_total` 使用同一套低基数字典：
+
+- `context_canceled`
+- `context_deadline`
+- `duplicate_key`
+- `deadlock`
+- `lock_timeout`
+- `timeout`
+- `connection`
+- `io`
+- `syntax`
+- `non_retryable`
+- `unknown`
+
+这些标签来自 `batchflow.ClassifyError(err)`。自定义 `RetryConfig.Classifier` 仍可覆盖重试决策，但建议返回同一套 reason，避免 Prometheus label 发散。
 
 ### `sql_generated_rows`
 

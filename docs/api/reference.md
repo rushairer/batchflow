@@ -86,6 +86,7 @@ type RetryConfig struct {
 
 - `MaxAttempts` 是总尝试次数，包含第一次执行。
 - 默认分类器会把 `context.Canceled` / `context.DeadlineExceeded` 视为不可重试。
+- 默认错误分类由 `ClassifyError(err)` 提供，reason 使用低基数字典，例如 `deadlock`、`lock_timeout`、`timeout`、`connection`、`io`、`duplicate_key`、`syntax`、`non_retryable`。
 - `ObserveExecuteDuration` 会包含重试和退避时间。
 
 ## 推荐构造函数
@@ -249,7 +250,7 @@ type OperationPreviewer interface {
 }
 ```
 
-自定义 processor 实现 `OperationPreviewer` 后，框架会自动把 preview 用于结构化日志、指标和 tracing hook。`Attributes` 只放低基数字段或计数，不要放原始 payload、SQL 参数、Redis key、HTTP body。
+自定义 processor 实现 `OperationPreviewer` 后，框架会自动把 preview 用于结构化日志和指标。`Attributes` 只放低基数字段或计数，不要放原始 payload、SQL 参数、Redis key、HTTP body。
 
 通用错误：
 
