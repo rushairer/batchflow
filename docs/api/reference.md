@@ -61,15 +61,32 @@ if err := flow.Wait(); err != nil {
 
 ```go
 type PipelineConfig struct {
-	BufferSize       uint32
-	FlushSize        uint32
-	FlushInterval    time.Duration
-	Retry            RetryConfig
-	Timeout          time.Duration
-	MetricsReporter  MetricsReporter
-	Observability    ObservabilityConfig
-	ConcurrencyLimit int
+	BufferSize               uint32
+	FlushSize                uint32
+	FlushInterval            time.Duration
+	MaxConcurrentFlushes     uint32
+	DrainOnCancel            bool
+	DrainGracePeriod         time.Duration
+	FinalFlushOnCloseTimeout time.Duration
+	Retry                    RetryConfig
+	Timeout                  time.Duration
+	MetricsReporter          MetricsReporter
+	Observability            ObservabilityConfig
+	ConcurrencyLimit         int
+	Coalescer                Coalescer
 }
+```
+
+```go
+type BatchFlowConfig struct {
+	Pipeline PipelineConfig
+	Executor BatchExecutor
+}
+
+func DefaultPipelineConfig() PipelineConfig
+func DefaultBatchFlowConfig(executor BatchExecutor) BatchFlowConfig
+func NewBatchFlowWithConfig(ctx context.Context, config BatchFlowConfig) (*BatchFlow, error)
+func (c PipelineConfig) Validate() error
 ```
 
 ### RetryConfig

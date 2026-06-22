@@ -7,6 +7,7 @@
 - Added security scanning and dependency update automation.
 - Strengthened CI, coverage, release, and nightly test gates.
 - Documented API stability, release policy, and error classification contracts.
+- Added v2-oriented batch coalescing, config validation, error classifier extension, and migration documentation.
 
 ## [v1.1.1] - 2026-04-09
 

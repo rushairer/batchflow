@@ -23,6 +23,7 @@
 
 - [架构设计](development/architecture.md)
 - [API 稳定性策略](development/api-stability.md)
+- [v2 迁移指南](development/migration-v2.md)
 - [贡献指南](development/contributing.md)
 - [测试指南](guides/testing.md)
 - [集成测试](guides/integration-tests.md)
