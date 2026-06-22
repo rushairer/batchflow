@@ -200,23 +200,7 @@ RETRY:
 		if err != nil {
 			err = batchErrorFromError(BatchStageGenerate, preview, len(data), err)
 			e.reportOperationError(schema.Name(), BatchStageGenerate, err)
-			e.observeBatchEvent(ctx, BatchEvent{
-				Stage:       BatchStageGenerate,
-				Status:      "fail",
-				Attempt:     attempt,
-				BatchSize:   len(data),
-				Duration:    time.Since(attemptStart),
-				Err:         err,
-				Reason:      defaultOperationErrorReason(err),
-				Backend:     preview.Backend,
-				Operation:   preview.Operation,
-				Schema:      schema.Name(),
-				InputItems:  preview.InputItems,
-				OutputItems: preview.OutputItems,
-				ArgCount:    preview.ArgCount,
-				Fingerprint: preview.Fingerprint,
-				Attributes:  cloneAttributes(preview.Attributes),
-			})
+			e.observeBatchEvent(ctx, newBatchEvent(BatchStageGenerate, "fail", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, err, defaultOperationErrorReason(err)))
 		}
 		e.reportOperationGenerated(schema.Name(), operations, data, preview, hasPreview)
 		if err == nil {
@@ -224,43 +208,13 @@ RETRY:
 			if err != nil {
 				err = batchErrorFromError(BatchStageExecute, preview, len(data), err)
 				e.reportOperationError(schema.Name(), BatchStageExecute, err)
-				e.observeBatchEvent(ctx, BatchEvent{
-					Stage:       BatchStageExecute,
-					Status:      "fail",
-					Attempt:     attempt,
-					BatchSize:   len(data),
-					Duration:    time.Since(attemptStart),
-					Err:         err,
-					Reason:      defaultOperationErrorReason(err),
-					Backend:     preview.Backend,
-					Operation:   preview.Operation,
-					Schema:      schema.Name(),
-					InputItems:  preview.InputItems,
-					OutputItems: preview.OutputItems,
-					ArgCount:    preview.ArgCount,
-					Fingerprint: preview.Fingerprint,
-					Attributes:  cloneAttributes(preview.Attributes),
-				})
+				e.observeBatchEvent(ctx, newBatchEvent(BatchStageExecute, "fail", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, err, defaultOperationErrorReason(err)))
 			}
 		}
 
 		if err == nil {
 			status = "success"
-			e.observeBatchEvent(ctx, BatchEvent{
-				Stage:       BatchStageExecute,
-				Status:      "success",
-				Attempt:     attempt,
-				BatchSize:   len(data),
-				Duration:    time.Since(attemptStart),
-				Backend:     preview.Backend,
-				Operation:   preview.Operation,
-				Schema:      schema.Name(),
-				InputItems:  preview.InputItems,
-				OutputItems: preview.OutputItems,
-				ArgCount:    preview.ArgCount,
-				Fingerprint: preview.Fingerprint,
-				Attributes:  cloneAttributes(preview.Attributes),
-			})
+			e.observeBatchEvent(ctx, newBatchEvent(BatchStageExecute, "success", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, nil, ""))
 			break
 		}
 
@@ -274,23 +228,7 @@ RETRY:
 			if e.metricsReporter != nil {
 				e.metricsReporter.IncError(schema.Name(), "final:"+reason)
 			}
-			e.observeBatchEvent(ctx, BatchEvent{
-				Stage:       BatchStageFinal,
-				Status:      "fail",
-				Attempt:     attempt,
-				BatchSize:   len(data),
-				Duration:    time.Since(startTime),
-				Err:         err,
-				Reason:      reason,
-				Backend:     preview.Backend,
-				Operation:   preview.Operation,
-				Schema:      schema.Name(),
-				InputItems:  preview.InputItems,
-				OutputItems: preview.OutputItems,
-				ArgCount:    preview.ArgCount,
-				Fingerprint: preview.Fingerprint,
-				Attributes:  cloneAttributes(preview.Attributes),
-			})
+			e.observeBatchEvent(ctx, newBatchEvent(BatchStageFinal, "fail", attempt, len(data), time.Since(startTime), schema.Name(), preview, err, reason))
 			break
 		}
 
@@ -298,23 +236,7 @@ RETRY:
 		if e.metricsReporter != nil {
 			e.metricsReporter.IncError(schema.Name(), "retry:"+reason)
 		}
-		e.observeBatchEvent(ctx, BatchEvent{
-			Stage:       BatchStageRetry,
-			Status:      "retry",
-			Attempt:     attempt,
-			BatchSize:   len(data),
-			Duration:    time.Since(attemptStart),
-			Err:         err,
-			Reason:      reason,
-			Backend:     preview.Backend,
-			Operation:   preview.Operation,
-			Schema:      schema.Name(),
-			InputItems:  preview.InputItems,
-			OutputItems: preview.OutputItems,
-			ArgCount:    preview.ArgCount,
-			Fingerprint: preview.Fingerprint,
-			Attributes:  cloneAttributes(preview.Attributes),
-		})
+		e.observeBatchEvent(ctx, newBatchEvent(BatchStageRetry, "retry", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, err, reason))
 
 		// 指数退避 + 抖动
 		backoff := e.retryBackoffBase
@@ -466,6 +388,26 @@ func isSQLError(err error) bool {
 func (e *ThrottledBatchExecutor) observeBatchEvent(ctx context.Context, event BatchEvent) {
 	if e.observer != nil {
 		e.observer.OnBatchEvent(ctx, event)
+	}
+}
+
+func newBatchEvent(stage, status string, attempt, batchSize int, duration time.Duration, schema string, preview OperationPreview, err error, reason string) BatchEvent {
+	return BatchEvent{
+		Stage:       stage,
+		Status:      status,
+		Attempt:     attempt,
+		BatchSize:   batchSize,
+		Duration:    duration,
+		Err:         err,
+		Reason:      reason,
+		Backend:     preview.Backend,
+		Operation:   preview.Operation,
+		Schema:      schema,
+		InputItems:  preview.InputItems,
+		OutputItems: preview.OutputItems,
+		ArgCount:    preview.ArgCount,
+		Fingerprint: preview.Fingerprint,
+		Attributes:  cloneAttributes(preview.Attributes),
 	}
 }
 
