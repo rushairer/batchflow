@@ -67,7 +67,7 @@
 - `non_retryable`
 - `unknown`
 
-`operation_errors_total`、`sql_errors_total` 和执行器 `errors_total` 应使用同一套 reason 字典。核心库通过 `batchflow.ClassifyError(err)` 生成默认分类；业务自定义 `RetryConfig.Classifier` 时，建议沿用这些常量，避免 label 发散。
+`operation_errors_total`、`sql_errors_total` 和执行器 `errors_total` 应使用同一套 reason 字典。核心库通过 `batchflow.ClassifyError(err)` 生成默认分类；业务自定义 `RetryConfig.Classifier` 时，建议沿用这些常量，避免 label 发散。完整语义见 [Error Classification](error-classification.md)。
 
 ### 4. Operation / SQL Diagnostics
 

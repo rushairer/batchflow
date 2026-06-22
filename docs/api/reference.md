@@ -2,6 +2,8 @@
 
 本文档只描述当前仓库已经实现并建议公开使用的 API。
 
+API 稳定性说明见 [API Stability Policy](../development/api-stability.md)。
+
 ## 核心类型
 
 ### BatchFlow
@@ -88,6 +90,8 @@ type RetryConfig struct {
 - 默认分类器会把 `context.Canceled` / `context.DeadlineExceeded` 视为不可重试。
 - 默认错误分类由 `ClassifyError(err)` 提供，reason 使用低基数字典，例如 `deadlock`、`lock_timeout`、`timeout`、`connection`、`io`、`duplicate_key`、`syntax`、`non_retryable`。
 - `ObserveExecuteDuration` 会包含重试和退避时间。
+
+错误原因完整列表见 [Error Classification](../guides/error-classification.md)。
 
 ## 推荐构造函数
 

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Enterprise readiness
+- Added open-source governance and security documentation.
+- Added security scanning and dependency update automation.
+- Strengthened CI, coverage, release, and nightly test gates.
+- Documented API stability, release policy, and error classification contracts.
+
 ## [v1.1.1] - 2026-04-09
 
 ### 生命周期示例 / Request setter / 文档一致性补强
