@@ -23,7 +23,7 @@ jobs:
       version: ${{ steps.get-version.outputs.version }}
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0  # 获取完整历史以便生成变更日志
 
@@ -126,7 +126,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -172,7 +172,7 @@ jobs:
     needs: [pre-release-validation, full-integration-tests]
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -225,7 +225,7 @@ jobs:
     needs: pre-release-validation
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
@@ -270,18 +270,18 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     steps:
     - name: Download release artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: release-artifacts
         path: ./release
 
     - name: Download changelog
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: changelog
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ needs.pre-release-validation.outputs.version }}
         name: BatchFlow ${{ needs.pre-release-validation.outputs.version }}
@@ -301,7 +301,7 @@ jobs:
     if: always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     steps:
     - name: Notify release status
-      uses: actions/github-script@v6
+      uses: actions/github-script@v9
       with:
         script: |
           const version = "${{ needs.pre-release-validation.outputs.version }}";
