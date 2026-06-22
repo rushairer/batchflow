@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestRequest_Setters_Getters_Validate(t *testing.T) {

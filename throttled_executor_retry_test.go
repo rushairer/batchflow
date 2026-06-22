@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // fakeProcessor simulates a BatchProcessor that fails the first failCount times with a retryable error.

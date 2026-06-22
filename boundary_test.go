@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestBoundary_EmptyData(t *testing.T) {

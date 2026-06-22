@@ -1,8 +1,8 @@
 # BatchFlow
 
 [![Release](https://img.shields.io/github/v/release/rushairer/batchflow?display_name=tag&include_prereleases&sort=semver)](https://github.com/rushairer/batchflow/releases)
-[![Go Reference](https://pkg.go.dev/badge/github.com/rushairer/batchflow.svg)](https://pkg.go.dev/github.com/rushairer/batchflow)
-[![Go Report Card](https://goreportcard.com/badge/github.com/rushairer/batchflow)](https://goreportcard.com/report/github.com/rushairer/batchflow)
+[![Go Reference](https://pkg.go.dev/badge/github.com/rushairer/batchflow/v2.svg)](https://pkg.go.dev/github.com/rushairer/batchflow/v2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/rushairer/batchflow/v2)](https://goreportcard.com/report/github.com/rushairer/batchflow/v2)
 [![License](https://img.shields.io/github/license/rushairer/batchflow)](https://github.com/rushairer/batchflow/blob/main/LICENSE)
 
 一个通用的 Go 批处理框架，基于 [go-pipeline](https://github.com/rushairer/go-pipeline) 构建，统一封装了批量攒批、异步 flush、执行器重试、可选并发限流和指标接入。
@@ -19,7 +19,7 @@
 ## 安装
 
 ```bash
-go get github.com/rushairer/batchflow
+go get github.com/rushairer/batchflow/v2
 ```
 
 ## 快速开始
@@ -35,7 +35,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func main() {
@@ -160,7 +160,7 @@ BatchFlow 的指标分三层：
 官方可直接复用的 Prometheus 示例位于：
 
 ```go
-import prommetrics "github.com/rushairer/batchflow/examples/metrics/prometheus"
+import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
 ```
 
 最小示例：

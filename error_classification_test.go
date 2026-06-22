@@ -9,7 +9,7 @@ import (
 	mysqlerr "github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestClassifyErrorReasons(t *testing.T) {

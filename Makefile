@@ -89,7 +89,7 @@ test-race: ## 运行竞态检测测试
 # 覆盖率（排除 test/ 包）
 cover: ## 运行覆盖率并输出 coverage.txt、coverage_total.txt（排除 test/ 与 examples/ 包）
 	@echo "🧪 运行覆盖率（排除 test/ 与 examples/ 包）..."
-	@PKGS=$$(go list ./... | grep -v '^github.com/rushairer/batchflow/test/' | grep -v '^github.com/rushairer/batchflow/examples/'); \
+	@PKGS=$$(go list ./... | grep -v '^github.com/rushairer/batchflow/v2/test/' | grep -v '^github.com/rushairer/batchflow/v2/examples/'); \
 	go test -v -cover -coverpkg="$$(echo $$PKGS | tr ' ' ',')" $$PKGS -coverprofile=coverage.out; \
 	go tool cover -func=coverage.out | tee coverage.txt; \
 	awk '/total:/ {gsub("%","", $$3); print $$3}' coverage.txt > coverage_total.txt

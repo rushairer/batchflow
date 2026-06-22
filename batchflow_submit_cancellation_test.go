@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestBatchFlow_Submit_ContextCancelled(t *testing.T) {

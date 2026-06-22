@@ -3,7 +3,7 @@ package batchflow_test
 import (
 	"testing"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestNewSchema_Basic(t *testing.T) {

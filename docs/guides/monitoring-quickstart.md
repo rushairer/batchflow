@@ -3,7 +3,7 @@
 推荐直接使用仓库里的官方 Prometheus 示例：
 
 ```go
-import prommetrics "github.com/rushairer/batchflow/examples/metrics/prometheus"
+import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
 ```
 
 ## 1. 启动指标端点

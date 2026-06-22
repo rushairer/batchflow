@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func runDatabaseTests(dbType, dsn string, config TestConfig, prometheusMetrics *PrometheusMetrics) []TestResult {

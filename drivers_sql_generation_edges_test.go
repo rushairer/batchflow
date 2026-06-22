@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestSQLGeneration_Edges(t *testing.T) {

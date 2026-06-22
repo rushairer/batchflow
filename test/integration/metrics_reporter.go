@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // PrometheusMetricsReporter 实现 batchflow.MetricsReporter，将批处理指标上报至 Prometheus

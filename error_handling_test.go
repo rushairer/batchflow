@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // MockErrorExecutor 模拟错误的执行器

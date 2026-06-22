@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // We will not use real *sql.DB; instead, rely on NewBatchFlowWithMockDriver for SQL path coverage.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // failOnceProcessor 第一次失败，其余成功

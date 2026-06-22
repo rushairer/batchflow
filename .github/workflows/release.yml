@@ -312,7 +312,7 @@ jobs:
             : `❌ BatchFlow ${version} Release Failed`;
             
           const body = success
-            ? `BatchFlow ${version} has been successfully released!\n\n✅ All tests passed\n✅ Release artifacts created\n✅ GitHub release published\n\nUsers can now install with:\n\`\`\`bash\ngo get github.com/rushairer/batchflow@${version}\n\`\`\``
+            ? `BatchFlow ${version} has been successfully released!\n\n✅ All tests passed\n✅ Release artifacts created\n✅ GitHub release published\n\nUsers can now install with:\n\`\`\`bash\ngo get github.com/rushairer/batchflow/v2@${version}\n\`\`\``
             : `BatchFlow ${version} release encountered issues. Please check the workflow logs and resolve any problems before attempting to release again.`;
           
           github.rest.issues.create({

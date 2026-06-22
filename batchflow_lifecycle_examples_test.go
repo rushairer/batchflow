@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func ExampleBatchFlow_Close() {

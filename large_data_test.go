@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestLargeData_MillionRecords(t *testing.T) {

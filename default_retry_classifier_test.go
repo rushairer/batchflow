@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // 通过公开的重试路径间接覆盖分类逻辑：构造一个 Processor，前两次返回可重试错误，第三次成功

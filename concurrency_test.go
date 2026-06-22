@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestConcurrency_MultipleGoroutinesSubmit(t *testing.T) {

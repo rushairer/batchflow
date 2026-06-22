@@ -259,7 +259,7 @@ defer flow.Close()
 ## 指标接入
 
 ```go
-import prommetrics "github.com/rushairer/batchflow/examples/metrics/prometheus"
+import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
 
 metrics := prommetrics.NewMetrics(prommetrics.Options{
 	Namespace:             "batchflow",

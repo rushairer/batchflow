@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestMockDriver_GenerateInsertSQL_Variants(t *testing.T) {

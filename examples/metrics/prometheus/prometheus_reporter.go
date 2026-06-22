@@ -3,7 +3,7 @@ package prometheusmetrics
 import (
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // Reporter 实现 batchflow.MetricsReporter + batchflow.PipelineMetricsReporter

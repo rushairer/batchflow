@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestMockExecutor_SnapshotResults_ConcurrencyAndSnapshotIsolation(t *testing.T) {

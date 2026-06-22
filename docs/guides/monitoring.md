@@ -7,7 +7,7 @@
 优先使用仓库内的 Prometheus 示例：
 
 ```go
-import prommetrics "github.com/rushairer/batchflow/examples/metrics/prometheus"
+import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
 ```
 
 ```go

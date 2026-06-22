@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 func TestMockExecutor_SnapshotResults_MultiTables(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rushairer/batchflow"
+	"github.com/rushairer/batchflow/v2"
 )
 
 // 确认 NoopMetricsReporter 的各方法可安全调用且不 panic
