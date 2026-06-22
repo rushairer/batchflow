@@ -67,8 +67,10 @@ func (e *SQLError) Unwrap() error {
 	return e.Cause
 }
 
-// SQLMetricsReporter is an optional extension for SQL-specific diagnostics.
-// Implementations must keep labels low-cardinality; do not use raw SQL as a label.
+// SQLMetricsReporter is an optional SQL-only detail extension kept for SQL diagnostics
+// and backward-compatible Prometheus examples. Backend-neutral integrations should
+// prefer OperationMetricsReporter. Implementations must keep labels low-cardinality;
+// do not use raw SQL as a label.
 type SQLMetricsReporter interface {
 	ObserveSQLGenerated(table string, inputRows, outputRows, argsCount int)
 	ObserveSQLDeduplicated(table string, strategy ConflictStrategy, deduplicatedRows, mergedRows int)

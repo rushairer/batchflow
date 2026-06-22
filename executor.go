@@ -45,14 +45,13 @@ type ConcurrencyCapable[T any] interface {
 	WithConcurrencyLimit(int) T
 }
 
-// ThrottledBatchExecutor SQL数据库通用批量执行器
-// 实现 ThrottledBatchExecutor 接口，为SQL数据库提供统一的执行逻辑
-// 架构：ThrottledBatchExecutor -> BatchProcessor -> SQLDriver -> Database
+// ThrottledBatchExecutor 通用批量执行器
+// 架构：ThrottledBatchExecutor -> BatchProcessor -> backend driver/client
 //
 // 设计优势：
-// - 代码复用：所有SQL数据库共享相同的执行逻辑和指标收集
+// - 代码复用：SQL、Redis、自定义后端共享执行、限流、重试和观测逻辑
 // - 职责分离：执行控制与具体处理逻辑分离
-// - 易于扩展：新增SQL数据库只需实现SQLDriver接口
+// - 易于扩展：新增后端只需实现 BatchProcessor，可选实现 OperationPreviewer
 type ThrottledBatchExecutor struct {
 	processor       BatchProcessor  // 具体的批量处理逻辑
 	metricsReporter MetricsReporter // 性能指标报告器

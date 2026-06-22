@@ -367,6 +367,7 @@ type MetricsReporter interface {
 
 - `ObserveBatchSize` 表示单个 schema 执行批的大小。
 - `ObserveExecuteDuration` 只表示执行耗时，不应该再重复记录 batch size。
+- `ObserveExecuteDuration` 的第一个参数历史命名为 `table`；非 SQL 后端按 schema 名传入。
 
 ### SQLMetricsReporter
 
@@ -378,7 +379,7 @@ type SQLMetricsReporter interface {
 }
 ```
 
-这是可选扩展接口。官方 Prometheus 示例已经实现该接口，用于区分 SQL 生成错误、执行错误、参数数量和批内冲突键合并情况。
+这是 SQL-only 细节扩展接口，保留用于 SQL 诊断和兼容官方 Prometheus 示例。通用后端优先实现 `OperationMetricsReporter`。
 
 ### OperationMetricsReporter
 
@@ -389,7 +390,7 @@ type OperationMetricsReporter interface {
 }
 ```
 
-这是 backend-neutral 指标扩展，适用于 SQL、Redis 和自定义 processor。官方 Prometheus 示例已经实现该接口。
+这是推荐的 backend-neutral 指标扩展，适用于 SQL、Redis 和自定义 processor。官方 Prometheus 示例已经实现该接口。
 
 ### PipelineMetricsReporter
 

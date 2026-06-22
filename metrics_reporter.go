@@ -5,9 +5,12 @@ import "time"
 // MetricsReporter 统一指标接口（默认 Noop 实现，避免启用前引入开销）
 type MetricsReporter interface {
 	// 阶段耗时
-	ObserveEnqueueLatency(d time.Duration)                                      // Submit -> 入队
-	ObserveBatchAssemble(d time.Duration)                                       // 攒批/组装
-	ObserveExecuteDuration(table string, n int, d time.Duration, status string) // 执行
+	ObserveEnqueueLatency(d time.Duration) // Submit -> 入队
+	ObserveBatchAssemble(d time.Duration)  // 攒批/组装
+	// ObserveExecuteDuration reports execution duration for a schema/table batch.
+	// The first argument is historically named table in implementations; non-SQL
+	// backends should pass the schema name.
+	ObserveExecuteDuration(table string, n int, d time.Duration, status string)
 
 	// 其他观测
 	ObserveBatchSize(n int)
@@ -62,8 +65,9 @@ type BatchFlowMetricsReporter interface {
 	ObserveSchemaGroupsPerFlush(n int)
 }
 
-// OperationMetricsReporter is a backend-neutral extension for generated operation diagnostics.
-// Implementations should keep labels low-cardinality and never use raw payloads as labels.
+// OperationMetricsReporter is the preferred backend-neutral extension for generated
+// operation diagnostics. Implementations should keep labels low-cardinality and
+// never use raw payloads as labels.
 type OperationMetricsReporter interface {
 	ObserveOperationGenerated(preview OperationPreview)
 	IncOperationError(schema string, backend string, stage string, reason string)
