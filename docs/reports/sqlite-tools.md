@@ -180,8 +180,8 @@ go run main.go
 - **[../SQLITE_OPTIMIZATION.md](../SQLITE_OPTIMIZATION.md)** - SQLite 优化文档
 - **[../PERFORMANCE_ANALYSIS.md](../PERFORMANCE_ANALYSIS.md)** - 性能分析报告
 - **[../TEST_REPORT_ANALYSIS.md](../TEST_REPORT_ANALYSIS.md)** - 测试报告分析
-- **[../../CONFIG.md](../../CONFIG.md)** - 统一配置说明
-- **[../../README-INTEGRATION-TESTS.md](../../README-INTEGRATION-TESTS.md)** - 集成测试文档
+- **[../api/configuration.md](../api/configuration.md)** - 统一配置说明
+- **[../guides/integration-tests.md](../guides/integration-tests.md)** - 集成测试文档
 
 ## 🤝 扩展开发
 

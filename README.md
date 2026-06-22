@@ -72,10 +72,10 @@ func main() {
 		"id", "name", "email",
 	)
 
-req := batchflow.NewRequest(schema).
-	SetUint64("id", 1).
-	SetString("name", "alice").
-	SetString("email", "alice@example.com")
+	req := batchflow.NewRequest(schema).
+		SetUint64("id", 1).
+		SetString("name", "alice").
+		SetString("email", "alice@example.com")
 
 	if err := flow.Submit(ctx, req); err != nil {
 		log.Fatal(err)
@@ -211,6 +211,12 @@ defer flow.Close()
 - [Metrics 规格](docs/guides/metrics-spec.md)
 - [自定义 MetricsReporter](docs/guides/custom-metrics-reporter.md)
 - [go-pipeline 指标接入说明](docs/guides/go-pipeline-metrics.md)
+
+## 社区与安全
+
+- [贡献指南](CONTRIBUTING.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md)
 
 ## 开发
 

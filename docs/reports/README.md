@@ -106,15 +106,11 @@ go run main.go
 - **[TEST_REPORT_ANALYSIS.md](TEST_REPORT_ANALYSIS.md)** - 测试报告详细分析（包含测试参数）
 - **[tools/README.md](tools/README.md)** - 测试工具集详细说明
 
-### 配置文件
-- **[../../.env.sqlite.test](../../.env.sqlite.test)** - SQLite 专用测试配置  
-- **[../../docker-compose.sqlite.yml](../../docker-compose.sqlite.yml)** - SQLite Docker 配置
-- **[../../CONFIG.md](../../CONFIG.md)** - 统一配置说明文档
-
 ### 项目文档
 - **[../../README.md](../../README.md)** - 项目主文档
-- **[../../QUALITY_ASSESSMENT.md](../../QUALITY_ASSESSMENT.md)** - 项目质量评估报告
-- **[../../README-INTEGRATION-TESTS.md](../../README-INTEGRATION-TESTS.md)** - 集成测试文档
+- **[../api/configuration.md](../api/configuration.md)** - 配置说明文档
+- **[../development/quality.md](../development/quality.md)** - 项目质量评估报告
+- **[../guides/integration-tests.md](../guides/integration-tests.md)** - 集成测试文档
 
 ## 配置选择建议
 

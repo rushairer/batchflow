@@ -111,3 +111,4 @@
 - Validate performance impact
 - Ensure documentation is updated
 - Test the changes locally if needed
+- Confirm public API, metrics labels, and security implications are documented
