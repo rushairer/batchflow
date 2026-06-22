@@ -190,79 +190,22 @@ func (e *ThrottledBatchExecutor) ExecuteBatch(ctx context.Context, schema Schema
 
 RETRY:
 	for attempt := 1; attempt <= attempts; attempt++ {
-		// 生成与执行（一次尝试）
-		var operations Operations
-		var preview OperationPreview
-		var hasPreview bool
-		attemptStart := time.Now()
-		operations, preview, hasPreview, err = e.generateOperations(ctx, schema, data)
-		if err != nil {
-			err = batchErrorFromError(BatchStageGenerate, preview, len(data), err)
-			e.reportOperationError(schema.Name(), BatchStageGenerate, err)
-			e.observeBatchEvent(ctx, newBatchEvent(BatchStageGenerate, "fail", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, err, defaultOperationErrorReason(err)))
-		}
-		e.reportOperationGenerated(schema.Name(), operations, data, preview, hasPreview)
-		if err == nil {
-			err = e.processor.ExecuteOperations(ctx, operations)
-			if err != nil {
-				err = batchErrorFromError(BatchStageExecute, preview, len(data), err)
-				e.reportOperationError(schema.Name(), BatchStageExecute, err)
-				e.observeBatchEvent(ctx, newBatchEvent(BatchStageExecute, "fail", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, err, defaultOperationErrorReason(err)))
-			}
-		}
-
+		result := e.executeAttempt(ctx, schema, data, attempt)
+		err = result.err
 		if err == nil {
 			status = "success"
-			e.observeBatchEvent(ctx, newBatchEvent(BatchStageExecute, "success", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, nil, ""))
 			break
 		}
 
-		// 错误分类与重试判定
-		retryable, reason := false, "unknown"
-		if e.retryClassifier != nil {
-			retryable, reason = e.retryClassifier(err)
-		}
-		if !e.retryEnabled || attempt == attempts || !retryable {
+		shouldRetry, retryErr := e.handleRetry(ctx, schema, data, result, attempt, attempts, startTime)
+		if retryErr != nil {
 			status = "fail"
-			if e.metricsReporter != nil {
-				e.metricsReporter.IncError(schema.Name(), "final:"+reason)
-			}
-			e.observeBatchEvent(ctx, newBatchEvent(BatchStageFinal, "fail", attempt, len(data), time.Since(startTime), schema.Name(), preview, err, reason))
-			break
-		}
-
-		// 记录一次重试指标
-		if e.metricsReporter != nil {
-			e.metricsReporter.IncError(schema.Name(), "retry:"+reason)
-		}
-		e.observeBatchEvent(ctx, newBatchEvent(BatchStageRetry, "retry", attempt, len(data), time.Since(attemptStart), schema.Name(), preview, err, reason))
-
-		// 指数退避 + 抖动
-		backoff := e.retryBackoffBase
-		for i := 1; i < attempt; i++ {
-			backoff *= 2
-			if backoff > e.retryMaxBackoff {
-				backoff = e.retryMaxBackoff
-				break
-			}
-		}
-		// 抖动 ±20%
-		jitter := time.Duration(int64(float64(backoff) * 0.2))
-		sleep := backoff - jitter + time.Duration(randInt63n(int64(2*jitter+1)))
-		timer := time.NewTimer(sleep)
-		select {
-		case <-ctx.Done():
-			// 安全停止/清理定时器并终止整个重试流程
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			status = "fail"
-			err = ctx.Err()
+			err = retryErr
 			break RETRY
-		case <-timer.C:
+		}
+		if !shouldRetry {
+			status = "fail"
+			break
 		}
 	}
 
@@ -299,6 +242,84 @@ func (e *ThrottledBatchExecutor) Observer() Observer { return e.observer }
 func (e *ThrottledBatchExecutor) WithObservability(config ObservabilityConfig) *ThrottledBatchExecutor {
 	e.observer = config.observer()
 	return e
+}
+
+type attemptResult struct {
+	preview  OperationPreview
+	err      error
+	duration time.Duration
+}
+
+func (e *ThrottledBatchExecutor) executeAttempt(ctx context.Context, schema SchemaInterface, data []map[string]any, attempt int) attemptResult {
+	attemptStart := time.Now()
+	operations, preview, hasPreview, err := e.generateOperations(ctx, schema, data)
+	if err != nil {
+		err = batchErrorFromError(BatchStageGenerate, preview, len(data), err)
+		e.reportOperationError(schema.Name(), BatchStageGenerate, err)
+		duration := time.Since(attemptStart)
+		e.observeBatchEvent(ctx, newBatchEvent(BatchStageGenerate, "fail", attempt, len(data), duration, schema.Name(), preview, err, defaultOperationErrorReason(err)))
+		return attemptResult{preview: preview, err: err, duration: duration}
+	}
+
+	e.reportOperationGenerated(schema.Name(), operations, data, preview, hasPreview)
+	err = e.processor.ExecuteOperations(ctx, operations)
+	if err != nil {
+		err = batchErrorFromError(BatchStageExecute, preview, len(data), err)
+		e.reportOperationError(schema.Name(), BatchStageExecute, err)
+		duration := time.Since(attemptStart)
+		e.observeBatchEvent(ctx, newBatchEvent(BatchStageExecute, "fail", attempt, len(data), duration, schema.Name(), preview, err, defaultOperationErrorReason(err)))
+		return attemptResult{preview: preview, err: err, duration: duration}
+	}
+
+	duration := time.Since(attemptStart)
+	e.observeBatchEvent(ctx, newBatchEvent(BatchStageExecute, "success", attempt, len(data), duration, schema.Name(), preview, nil, ""))
+	return attemptResult{preview: preview, duration: duration}
+}
+
+func (e *ThrottledBatchExecutor) handleRetry(ctx context.Context, schema SchemaInterface, data []map[string]any, result attemptResult, attempt, attempts int, startTime time.Time) (bool, error) {
+	retryable, reason := false, "unknown"
+	if e.retryClassifier != nil {
+		retryable, reason = e.retryClassifier(result.err)
+	}
+	if !e.retryEnabled || attempt == attempts || !retryable {
+		if e.metricsReporter != nil {
+			e.metricsReporter.IncError(schema.Name(), "final:"+reason)
+		}
+		e.observeBatchEvent(ctx, newBatchEvent(BatchStageFinal, "fail", attempt, len(data), time.Since(startTime), schema.Name(), result.preview, result.err, reason))
+		return false, nil
+	}
+
+	if e.metricsReporter != nil {
+		e.metricsReporter.IncError(schema.Name(), "retry:"+reason)
+	}
+	e.observeBatchEvent(ctx, newBatchEvent(BatchStageRetry, "retry", attempt, len(data), result.duration, schema.Name(), result.preview, result.err, reason))
+
+	timer := time.NewTimer(e.retryBackoff(attempt))
+	select {
+	case <-ctx.Done():
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		return false, ctx.Err()
+	case <-timer.C:
+		return true, nil
+	}
+}
+
+func (e *ThrottledBatchExecutor) retryBackoff(attempt int) time.Duration {
+	backoff := e.retryBackoffBase
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+		if backoff > e.retryMaxBackoff {
+			backoff = e.retryMaxBackoff
+			break
+		}
+	}
+	jitter := time.Duration(int64(float64(backoff) * 0.2))
+	return backoff - jitter + time.Duration(randInt63n(int64(2*jitter+1)))
 }
 
 func (e *ThrottledBatchExecutor) generateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, OperationPreview, bool, error) {
