@@ -45,12 +45,32 @@ Reason labels must stay low-cardinality. Do not use raw error strings, SQL text,
 
 Use detailed values in redacted structured logs or error causes, not metrics labels.
 
-## Database-Specific Future Work
+## Database-Specific Structured Codes
 
-String matching is currently used for common cross-driver errors. Future improvements should add structured database-code classification where drivers expose it, for example:
+BatchFlow classifies structured driver errors before falling back to normalized error text.
 
-- PostgreSQL SQLSTATE
-- MySQL error numbers
-- Redis typed errors
+### PostgreSQL SQLSTATE
 
-Adding structured recognition must preserve the reason dictionary above unless a new low-cardinality reason is documented first.
+| SQLSTATE | Reason |
+|---|---|
+| `23505` | `duplicate_key` |
+| `40P01` | `deadlock` |
+| `55P03` | `lock_timeout` |
+| `57014` | `timeout` |
+| `42601` | `syntax` |
+| class `08`, `53300`, `57P01`, `57P02`, `57P03` | `connection` |
+
+### MySQL Error Numbers
+
+| Number | Reason |
+|---:|---|
+| `1062` | `duplicate_key` |
+| `1213` | `deadlock` |
+| `1205` | `lock_timeout` |
+| `3024`, `1317` | `timeout` |
+| `1040`, `1042`, `1043`, `2002`, `2003`, `2006`, `2013` | `connection` |
+| `1064` | `syntax` |
+
+Unknown structured database codes fall back to `non_retryable`.
+
+Adding new structured recognition must preserve the reason dictionary above unless a new low-cardinality reason is documented first.

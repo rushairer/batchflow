@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	mysqlDriver "github.com/go-sql-driver/mysql"
+	"github.com/lib/pq"
 )
 
 const (
@@ -33,6 +36,12 @@ func ClassifyError(err error) (retryable bool, reason string) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return false, ErrorReasonContextDeadline
 	}
+	if retryable, reason, ok := classifyMySQLError(err); ok {
+		return retryable, reason
+	}
+	if retryable, reason, ok := classifyPostgreSQLError(err); ok {
+		return retryable, reason
+	}
 
 	s := strings.ToLower(err.Error())
 	switch {
@@ -54,6 +63,53 @@ func ClassifyError(err error) (retryable bool, reason string) {
 		return false, ErrorReasonSyntax
 	default:
 		return false, ErrorReasonNonRetryable
+	}
+}
+
+func classifyMySQLError(err error) (retryable bool, reason string, ok bool) {
+	var mysqlErr *mysqlDriver.MySQLError
+	if !errors.As(err, &mysqlErr) {
+		return false, "", false
+	}
+	switch mysqlErr.Number {
+	case 1062:
+		return false, ErrorReasonDuplicateKey, true
+	case 1213:
+		return true, ErrorReasonDeadlock, true
+	case 1205:
+		return true, ErrorReasonLockTimeout, true
+	case 3024, 1317:
+		return true, ErrorReasonTimeout, true
+	case 1040, 1042, 1043, 2002, 2003, 2006, 2013:
+		return true, ErrorReasonConnection, true
+	case 1064:
+		return false, ErrorReasonSyntax, true
+	default:
+		return false, ErrorReasonNonRetryable, true
+	}
+}
+
+func classifyPostgreSQLError(err error) (retryable bool, reason string, ok bool) {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false, "", false
+	}
+	code := pqErr.SQLState()
+	switch {
+	case code == "23505":
+		return false, ErrorReasonDuplicateKey, true
+	case code == "40P01":
+		return true, ErrorReasonDeadlock, true
+	case code == "55P03":
+		return true, ErrorReasonLockTimeout, true
+	case code == "57014":
+		return true, ErrorReasonTimeout, true
+	case code == "42601":
+		return false, ErrorReasonSyntax, true
+	case strings.HasPrefix(code, "08"), code == "53300", code == "57P01", code == "57P02", code == "57P03":
+		return true, ErrorReasonConnection, true
+	default:
+		return false, ErrorReasonNonRetryable, true
 	}
 }
 
