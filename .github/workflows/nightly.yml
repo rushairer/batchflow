@@ -174,7 +174,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Download all performance reports
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: ./performance-data
 
@@ -233,7 +233,7 @@ jobs:
     if: always() && github.repository_owner == 'rushairer'  # 仅在主仓库运行
     steps:
     - name: Download performance analysis
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: nightly-performance-analysis
 
