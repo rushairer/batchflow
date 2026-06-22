@@ -318,6 +318,8 @@ func FingerprintSQL(sqlText string) string
 
 `GenerateSQLPreview` 不访问数据库，返回的 SQL 与真实执行路径使用同一套 driver 生成逻辑。`Args` 可能包含敏感数据，生产日志建议只记录 `ArgsCount`、`Fingerprint`、冲突列、更新列和去重统计。
 
+`SQLBatchProcessor.ExecuteOperations` 兼容以 `SQLPreview` 作为首个 operation 的直接执行形式；常规生成路径仍返回 SQL 字符串和参数列表。
+
 SQL 结构化错误：
 
 ```go

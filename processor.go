@@ -106,6 +106,8 @@ func (bp *SQLBatchProcessor) ExecuteOperations(ctx context.Context, operations O
 		return &SQLError{Stage: SQLStageValidate, Cause: errors.New("empty operations")}
 	}
 
+	// Compatibility path: older diagnostics/tests may pass SQLPreview directly as
+	// the first operation. Normal generation returns SQL string + args.
 	if preview, ok := operations[0].(SQLPreview); ok {
 		_, err := bp.db.ExecContext(ctx, preview.SQL, preview.Args...)
 		if err != nil && errors.Is(err, context.DeadlineExceeded) {
