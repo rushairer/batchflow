@@ -58,10 +58,12 @@ func TestSQLErrorWrapsGenerationMetadata(t *testing.T) {
 }
 
 type sqlMetricsRecorder struct {
-	generated int
-	dedup     int
-	errors    int
-	lastStage batchflow.SQLStage
+	generated          int
+	dedup              int
+	errors             int
+	operationGenerated int
+	operationErrors    int
+	lastStage          batchflow.SQLStage
 }
 
 func (r *sqlMetricsRecorder) ObserveEnqueueLatency(d time.Duration) {}
@@ -83,6 +85,12 @@ func (r *sqlMetricsRecorder) ObserveSQLDeduplicated(table string, strategy batch
 func (r *sqlMetricsRecorder) IncSQLError(table string, stage batchflow.SQLStage, reason string) {
 	r.errors++
 	r.lastStage = stage
+}
+func (r *sqlMetricsRecorder) ObserveOperationGenerated(preview batchflow.OperationPreview) {
+	r.operationGenerated++
+}
+func (r *sqlMetricsRecorder) IncOperationError(schema string, backend string, stage string, reason string) {
+	r.operationErrors++
 }
 
 type sqlMetricsProcessor struct{}
@@ -111,10 +119,33 @@ func TestThrottledExecutorReportsSQLErrorMetrics(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected execute error")
 	}
-	if reporter.generated != 1 {
-		t.Fatalf("generated metric count = %d, want 1", reporter.generated)
-	}
 	if reporter.errors != 1 || reporter.lastStage != batchflow.SQLStageExecute {
 		t.Fatalf("unexpected sql error metrics: errors=%d stage=%s", reporter.errors, reporter.lastStage)
+	}
+}
+
+type stringOperationProcessor struct{}
+
+func (stringOperationProcessor) GenerateOperations(ctx context.Context, schema batchflow.SchemaInterface, data []map[string]any) (batchflow.Operations, error) {
+	return batchflow.Operations{"POST /v1/events", "body"}, nil
+}
+
+func (stringOperationProcessor) ExecuteOperations(ctx context.Context, ops batchflow.Operations) error {
+	return nil
+}
+
+func TestThrottledExecutor_DoesNotReportSQLMetricsForCustomStringOperation(t *testing.T) {
+	reporter := &sqlMetricsRecorder{}
+	exec := batchflow.NewThrottledBatchExecutor(stringOperationProcessor{}).WithMetricsReporter(reporter)
+	schema := batchflow.NewSchema("api_events", "id")
+
+	if err := exec.ExecuteBatch(context.Background(), schema, []map[string]any{{"id": 1}}); err != nil {
+		t.Fatalf("ExecuteBatch error: %v", err)
+	}
+	if reporter.operationGenerated != 1 {
+		t.Fatalf("operation generated count = %d, want 1", reporter.operationGenerated)
+	}
+	if reporter.generated != 0 || reporter.dedup != 0 || reporter.errors != 0 {
+		t.Fatalf("custom operation polluted SQL metrics: generated=%d dedup=%d errors=%d", reporter.generated, reporter.dedup, reporter.errors)
 	}
 }

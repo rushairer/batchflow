@@ -421,21 +421,13 @@ func (e *ThrottledBatchExecutor) reportOperationGenerated(table string, operatio
 		}
 	}
 	reporter, ok := e.metricsReporter.(SQLMetricsReporter)
-	if !ok || len(operations) == 0 {
-		return
-	}
-	sqlText, ok := operations[0].(string)
 	if !ok {
 		return
 	}
 	if sqlPreview, ok := sqlPreviewFromOperation(preview); ok {
 		reporter.ObserveSQLGenerated(table, sqlPreview.DedupStats.InputRows, sqlPreview.DedupStats.OutputRows, sqlPreview.ArgsCount)
 		reporter.ObserveSQLDeduplicated(table, sqlPreview.ConflictStrategy, sqlPreview.DedupStats.DeduplicatedRows, sqlPreview.DedupStats.MergedRows)
-		return
 	}
-	argsCount := len(sqlOperationArgs(operations))
-	reporter.ObserveSQLGenerated(table, len(data), len(data), argsCount)
-	_ = sqlText
 }
 
 func (e *ThrottledBatchExecutor) reportOperationError(table, stage string, err error) {
@@ -451,7 +443,7 @@ func (e *ThrottledBatchExecutor) reportOperationError(table, stage string, err e
 		}
 		reporter.IncOperationError(table, backend, stage, reason)
 	}
-	if reporter, ok := e.metricsReporter.(SQLMetricsReporter); ok {
+	if reporter, ok := e.metricsReporter.(SQLMetricsReporter); ok && isSQLError(err) {
 		sqlStage := SQLStage(stage)
 		var sqlErr *SQLError
 		if errors.As(err, &sqlErr) {
@@ -460,6 +452,15 @@ func (e *ThrottledBatchExecutor) reportOperationError(table, stage string, err e
 		}
 		reporter.IncSQLError(table, sqlStage, reason)
 	}
+}
+
+func isSQLError(err error) bool {
+	var sqlErr *SQLError
+	if errors.As(err, &sqlErr) {
+		return true
+	}
+	var batchErr *BatchError
+	return errors.As(err, &batchErr) && batchErr.Backend == BackendSQL
 }
 
 func (e *ThrottledBatchExecutor) observeBatchEvent(ctx context.Context, event BatchEvent) {
