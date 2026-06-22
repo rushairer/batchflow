@@ -45,16 +45,11 @@ type AdaptiveConfig struct {
     }
 }
 
-// 指标细化与导出开关
-type MetricsConfig struct {
-    Enabled bool
-    // 直方图桶、Quantiles、命名空间前缀等可选项
-}
 ```
 
 与现有 `PipelineConfig` 的整合建议：
 - 以“可选指针字段”方式扩展，不破坏现有字段
-- 零值关闭：未提供 AdaptiveConfig / MetricsConfig 时，行为与现状一致
+- 零值关闭：未提供 AdaptiveConfig / MetricsReporter 时，行为与现状一致
 - 维持现有 `FlushSize` / `FlushInterval` 语义作为初始值与保护边界
 
 ## 指标细化（建议实现项）

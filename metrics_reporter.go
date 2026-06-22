@@ -2,11 +2,6 @@ package batchflow
 
 import "time"
 
-// MetricsConfig 指标导出配置（骨架；默认关闭采样）
-type MetricsConfig struct {
-	Enabled bool
-}
-
 // MetricsReporter 统一指标接口（默认 Noop 实现，避免启用前引入开销）
 type MetricsReporter interface {
 	// 阶段耗时

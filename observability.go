@@ -193,10 +193,9 @@ func DefaultRedactor() Redactor {
 }
 
 type slogObserver struct {
-	logger             *slog.Logger
-	sampler            Sampler
-	redactor           Redactor
-	slowBatchThreshold time.Duration
+	logger   *slog.Logger
+	sampler  Sampler
+	redactor Redactor
 }
 
 func NewSlogObserver(logger *slog.Logger, sampler Sampler, redactor Redactor, slowBatchThreshold time.Duration) Observer {
@@ -210,10 +209,9 @@ func NewSlogObserver(logger *slog.Logger, sampler Sampler, redactor Redactor, sl
 		redactor = DefaultRedactor()
 	}
 	return &slogObserver{
-		logger:             logger,
-		sampler:            sampler,
-		redactor:           redactor,
-		slowBatchThreshold: slowBatchThreshold,
+		logger:   logger,
+		sampler:  sampler,
+		redactor: redactor,
 	}
 }
 
