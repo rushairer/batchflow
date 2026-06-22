@@ -39,6 +39,22 @@ Retry: batchflow.RetryConfig{
 }
 ```
 
+For reusable backend integrations, register a classifier once during initialization:
+
+```go
+unregister := batchflow.RegisterErrorClassifier(batchflow.ErrorClassifierFunc(
+	func(err error) (bool, string, bool) {
+		if errors.Is(err, myBackendTemporaryError) {
+			return true, batchflow.ErrorReasonTimeout, true
+		}
+		return false, "", false
+	},
+))
+defer unregister()
+```
+
+Registered classifiers run after built-in structured MySQL/PostgreSQL recognition and before the string fallback. This keeps database driver codes stable while allowing custom Redis, HTTP, queue, or storage backends to participate in the same retry and metrics reason dictionary.
+
 ## Label Discipline
 
 Reason labels must stay low-cardinality. Do not use raw error strings, SQL text, request IDs, user IDs, Redis keys, HTTP paths with IDs, or backend-specific detailed codes as Prometheus labels.

@@ -188,3 +188,37 @@ func TestClassifyErrorUnwrapsStructuredSQLErrorCause(t *testing.T) {
 		t.Fatalf("ClassifyError() = (%v, %q), want duplicate_key", retryable, reason)
 	}
 }
+
+func TestRegisterErrorClassifier(t *testing.T) {
+	sentinel := errors.New("backend throttled")
+	unregister := batchflow.RegisterErrorClassifier(batchflow.ErrorClassifierFunc(func(err error) (bool, string, bool) {
+		if errors.Is(err, sentinel) {
+			return true, batchflow.ErrorReasonTimeout, true
+		}
+		return false, "", false
+	}))
+
+	retryable, reason := batchflow.ClassifyError(fmt.Errorf("wrapped: %w", sentinel))
+	if !retryable || reason != batchflow.ErrorReasonTimeout {
+		t.Fatalf("ClassifyError() = (%v, %q), want timeout", retryable, reason)
+	}
+
+	unregister()
+	retryable, reason = batchflow.ClassifyError(fmt.Errorf("wrapped: %w", sentinel))
+	if retryable || reason != batchflow.ErrorReasonNonRetryable {
+		t.Fatalf("after unregister ClassifyError() = (%v, %q), want non_retryable", retryable, reason)
+	}
+}
+
+func TestRegisterErrorClassifierEmptyReasonFallsBackToNonRetryable(t *testing.T) {
+	sentinel := errors.New("classified with empty reason")
+	unregister := batchflow.RegisterErrorClassifier(batchflow.ErrorClassifierFunc(func(err error) (bool, string, bool) {
+		return errors.Is(err, sentinel), "", errors.Is(err, sentinel)
+	}))
+	defer unregister()
+
+	retryable, reason := batchflow.ClassifyError(sentinel)
+	if !retryable || reason != batchflow.ErrorReasonNonRetryable {
+		t.Fatalf("ClassifyError() = (%v, %q), want retryable non_retryable", retryable, reason)
+	}
+}

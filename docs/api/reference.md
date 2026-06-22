@@ -91,6 +91,21 @@ type RetryConfig struct {
 - 默认错误分类由 `ClassifyError(err)` 提供，reason 使用低基数字典，例如 `deadlock`、`lock_timeout`、`timeout`、`connection`、`io`、`duplicate_key`、`syntax`、`non_retryable`。
 - `ObserveExecuteDuration` 会包含重试和退避时间。
 
+错误分类扩展接口：
+
+```go
+type ErrorClassifier interface {
+	Classify(error) (retryable bool, reason string, ok bool)
+}
+
+type ErrorClassifierFunc func(error) (retryable bool, reason string, ok bool)
+
+func RegisterErrorClassifier(classifier ErrorClassifier) func()
+func ClassifyError(err error) (retryable bool, reason string)
+```
+
+自定义 classifier 会在内置 MySQL/PostgreSQL 结构化错误识别之后、字符串 fallback 之前执行。
+
 错误原因完整列表见 [Error Classification](../guides/error-classification.md)。
 
 ## 推荐构造函数

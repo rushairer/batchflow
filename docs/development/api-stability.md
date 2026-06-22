@@ -30,7 +30,7 @@ BatchFlow follows semantic versioning for public Go APIs, metrics contracts, and
   - `NewRedisBatchFlow`
 - `BatchExecutor`
 - `RetryConfig`
-- `ClassifyError` and `ErrorReason*` constants
+- `ClassifyError`, `RegisterErrorClassifier`, `ErrorClassifier`, and `ErrorReason*` constants
 - `GenerateSQLPreview`, `SQLPreview`, `SQLError`, `SQLStage`
 
 ## Stable Metrics Contract

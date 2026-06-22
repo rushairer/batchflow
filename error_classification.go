@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
@@ -23,6 +24,57 @@ const (
 	ErrorReasonNonRetryable    = "non_retryable"
 )
 
+// ErrorClassifier recognizes backend-specific errors and returns a low-cardinality reason.
+type ErrorClassifier interface {
+	Classify(error) (retryable bool, reason string, ok bool)
+}
+
+type ErrorClassifierFunc func(error) (retryable bool, reason string, ok bool)
+
+func (f ErrorClassifierFunc) Classify(err error) (retryable bool, reason string, ok bool) {
+	if f == nil {
+		return false, "", false
+	}
+	return f(err)
+}
+
+var errorClassifiers struct {
+	sync.RWMutex
+	nextID uint64
+	custom []registeredErrorClassifier
+}
+
+type registeredErrorClassifier struct {
+	id         uint64
+	classifier ErrorClassifier
+}
+
+// RegisterErrorClassifier adds a custom classifier after built-in structured classifiers
+// and before the string fallback. The returned function unregisters it.
+func RegisterErrorClassifier(classifier ErrorClassifier) func() {
+	if classifier == nil {
+		return func() {}
+	}
+	errorClassifiers.Lock()
+	errorClassifiers.nextID++
+	id := errorClassifiers.nextID
+	errorClassifiers.custom = append(errorClassifiers.custom, registeredErrorClassifier{
+		id:         id,
+		classifier: classifier,
+	})
+	errorClassifiers.Unlock()
+	return func() {
+		errorClassifiers.Lock()
+		defer errorClassifiers.Unlock()
+		for i, candidate := range errorClassifiers.custom {
+			if candidate.id == id {
+				errorClassifiers.custom = append(errorClassifiers.custom[:i], errorClassifiers.custom[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
 // ClassifyError returns a low-cardinality retry decision and reason label for logs and metrics.
 // It unwraps BatchError and SQLError before classifying the underlying cause.
 func ClassifyError(err error) (retryable bool, reason string) {
@@ -41,6 +93,14 @@ func ClassifyError(err error) (retryable bool, reason string) {
 	}
 	if retryable, reason, ok := classifyPostgreSQLError(err); ok {
 		return retryable, reason
+	}
+	for _, classifier := range snapshotCustomErrorClassifiers() {
+		if retryable, reason, ok := classifier.Classify(err); ok {
+			if reason == "" {
+				reason = ErrorReasonNonRetryable
+			}
+			return retryable, reason
+		}
 	}
 
 	s := strings.ToLower(err.Error())
@@ -64,6 +124,19 @@ func ClassifyError(err error) (retryable bool, reason string) {
 	default:
 		return false, ErrorReasonNonRetryable
 	}
+}
+
+func snapshotCustomErrorClassifiers() []ErrorClassifier {
+	errorClassifiers.RLock()
+	defer errorClassifiers.RUnlock()
+	if len(errorClassifiers.custom) == 0 {
+		return nil
+	}
+	out := make([]ErrorClassifier, len(errorClassifiers.custom))
+	for i, entry := range errorClassifiers.custom {
+		out[i] = entry.classifier
+	}
+	return out
 }
 
 func classifyMySQLError(err error) (retryable bool, reason string, ok bool) {
