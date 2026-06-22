@@ -16,6 +16,46 @@ type PipelineConfig struct {
 }
 ```
 
+## SQLOperationConfig
+
+SQL schema 的冲突写入行为由 `SQLOperationConfig` 控制：
+
+```go
+type SQLOperationConfig struct {
+	ConflictStrategy ConflictStrategy
+	ConflictColumns  []string
+	UpdateColumns    []string
+	DeduplicateByConflictColumns bool
+}
+```
+
+推荐使用链式方法配置：
+
+```go
+config := batchflow.ConflictUpdateOperationConfig.
+	WithConflictColumns("tenant_id", "user_id").
+	WithUpdateColumns("name", "email")
+
+schema := batchflow.NewSQLSchema(
+	"users",
+	config,
+	"tenant_id", "user_id", "name", "email", "updated_at",
+)
+```
+
+字段说明：
+
+- `ConflictStrategy`：冲突处理策略，支持 `ConflictIgnore`、`ConflictUpdate`、`ConflictReplace`。
+- `ConflictColumns`：冲突键，用于 PostgreSQL/SQLite `ON CONFLICT (...)`，也用于批内同键合并。未配置时兼容旧行为，使用 schema 第一列。
+- `UpdateColumns`：仅对 `ConflictUpdate` 生效；未配置时更新所有非冲突列。
+- `DeduplicateByConflictColumns`：默认开启。开启后同一批次内相同冲突键会先合并，避免 PostgreSQL 同一条 SQL 多次影响同一行。
+
+数据库差异：
+
+- PostgreSQL `ConflictReplace` 是 upsert 覆盖：`ON CONFLICT (...) DO UPDATE SET ...`，更新所有非冲突列。
+- MySQL `ConflictReplace` 是原生 `REPLACE INTO`，语义上可能触发 delete+insert。
+- MySQL `ConflictUpdate` 使用 `ON DUPLICATE KEY UPDATE`，配置 `ConflictColumns` 后不会更新这些冲突列。
+
 ## 字段说明
 
 ### BufferSize

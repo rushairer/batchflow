@@ -17,7 +17,17 @@ const (
 // 操作配置
 type SQLOperationConfig struct {
 	ConflictStrategy ConflictStrategy
-	// 其他操作相关配置...
+	// ConflictColumns defines the conflict target used by upsert-style writes.
+	// When empty, drivers fall back to the first schema column for backward compatibility.
+	ConflictColumns []string
+	// UpdateColumns limits columns updated by ConflictUpdate. When empty,
+	// drivers update all non-conflict columns.
+	UpdateColumns []string
+	// DeduplicateByConflictColumns controls client-side merge of duplicate
+	// conflict keys before generating SQL. The default is true; use
+	// WithDeduplicateByConflictColumns(false) to disable it.
+	DeduplicateByConflictColumns bool
+	deduplicateConfigured        bool
 }
 
 // Schema 表结构定义
@@ -51,6 +61,7 @@ type SQLSchema struct {
 }
 
 func NewSQLSchema(name string, operationConfig SQLOperationConfig, columns ...string) *SQLSchema {
+	operationConfig = operationConfig.withDefaults()
 	return &SQLSchema{
 		Schema:          NewSchema(name, columns...),
 		operationConfig: operationConfig,
@@ -59,6 +70,29 @@ func NewSQLSchema(name string, operationConfig SQLOperationConfig, columns ...st
 
 func (s *SQLSchema) OperationConfig() any {
 	return s.operationConfig
+}
+
+func (c SQLOperationConfig) withDefaults() SQLOperationConfig {
+	if !c.deduplicateConfigured {
+		c.DeduplicateByConflictColumns = true
+	}
+	return c
+}
+
+func (c SQLOperationConfig) WithConflictColumns(cols ...string) SQLOperationConfig {
+	c.ConflictColumns = append([]string(nil), cols...)
+	return c.withDefaults()
+}
+
+func (c SQLOperationConfig) WithUpdateColumns(cols ...string) SQLOperationConfig {
+	c.UpdateColumns = append([]string(nil), cols...)
+	return c.withDefaults()
+}
+
+func (c SQLOperationConfig) WithDeduplicateByConflictColumns(enabled bool) SQLOperationConfig {
+	c.DeduplicateByConflictColumns = enabled
+	c.deduplicateConfigured = true
+	return c
 }
 
 var DefaultOperationConfig = SQLOperationConfig{

@@ -50,6 +50,7 @@ func runDatabaseTests(dbType, dsn string, config TestConfig, prometheusMetrics *
 		name     string
 		testFunc func(*sql.DB, string, TestConfig, *PrometheusMetrics) TestResult
 	}{
+		{"重复主键 Upsert 语义测试", runDuplicateKeyUpsertTest},
 		{"高吞吐量测试", runHighThroughputTest},
 		{"并发工作线程测试", runConcurrentWorkersTest},
 		{"大批次测试", runLargeBatchTest},
@@ -81,6 +82,94 @@ func runDatabaseTests(dbType, dsn string, config TestConfig, prometheusMetrics *
 	}
 
 	return results
+}
+
+func runDuplicateKeyUpsertTest(db *sql.DB, dbType string, config TestConfig, prometheusMetrics *PrometheusMetrics) TestResult {
+	_ = prometheusMetrics
+	ctx := context.Background()
+	startTime := time.Now()
+	var errors []string
+
+	var driver batchflow.SQLDriver
+	switch dbType {
+	case "mysql":
+		driver = batchflow.DefaultMySQLDriver
+	case "postgres":
+		driver = batchflow.DefaultPostgreSQLDriver
+	case "sqlite3":
+		driver = batchflow.DefaultSQLiteDriver
+	default:
+		errors = append(errors, fmt.Sprintf("unsupported sql db type: %s", dbType))
+	}
+
+	if len(errors) == 0 {
+		executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, driver)
+		cfg := batchflow.ConflictUpdateOperationConfig.
+			WithConflictColumns("id").
+			WithUpdateColumns("name", "email", "data", "value", "is_active", "created_at")
+		schema := batchflow.NewSQLSchema("integration_test", cfg,
+			"id", "name", "email", "data", "value", "is_active", "created_at")
+
+		rows := []map[string]any{
+			{"id": int64(1), "name": "first", "email": "first@example.com", "data": "before", "value": 1.0, "is_active": true, "created_at": time.Now().UTC()},
+			{"id": int64(1), "name": "second", "data": "after"},
+			{"id": int64(2), "name": "other", "email": "other@example.com", "data": "other", "value": 2.0, "is_active": false, "created_at": time.Now().UTC()},
+		}
+		if err := executor.ExecuteBatch(ctx, schema, rows); err != nil {
+			errors = append(errors, fmt.Sprintf("duplicate key upsert failed: %v", err))
+		}
+	}
+
+	actualRecords, countErr := getSQLRecordCount(db)
+	if countErr != nil {
+		errors = append(errors, fmt.Sprintf("failed to count records: %v", countErr))
+	}
+
+	var name, email, dataValue string
+	if len(errors) == 0 {
+		query := "SELECT name, email, data FROM integration_test WHERE id = ?"
+		if dbType == "postgres" {
+			query = "SELECT name, email, data FROM integration_test WHERE id = $1"
+		}
+		if err := db.QueryRow(query, 1).Scan(&name, &email, &dataValue); err != nil {
+			errors = append(errors, fmt.Sprintf("failed to read merged row: %v", err))
+		}
+	}
+	if len(errors) == 0 && (name != "second" || email != "first@example.com" || dataValue != "after") {
+		errors = append(errors, fmt.Sprintf("unexpected merged row: name=%q email=%q data=%q", name, email, dataValue))
+	}
+
+	expectedRecords := int64(2)
+	dataIntegrityRate := 0.0
+	if expectedRecords > 0 {
+		dataIntegrityRate = float64(actualRecords) / float64(expectedRecords) * 100
+	}
+	rps := 0.0
+	duration := time.Since(startTime)
+	if duration > 0 {
+		rps = float64(expectedRecords) / duration.Seconds()
+	}
+
+	return TestResult{
+		Database:            dbType,
+		Duration:            duration,
+		TotalRecords:        expectedRecords,
+		ActualRecords:       actualRecords,
+		DataIntegrityRate:   dataIntegrityRate,
+		DataIntegrityStatus: fmt.Sprintf("期望 %d 条，实际 %d 条", expectedRecords, actualRecords),
+		RecordsPerSecond:    rps,
+		RPSValid:            len(errors) == 0,
+		ConcurrentWorkers:   1,
+		TestParameters: TestParams{
+			BatchSize:       config.BatchSize,
+			BufferSize:      config.BufferSize,
+			FlushInterval:   config.FlushInterval,
+			ExpectedRecords: expectedRecords,
+			TestDuration:    config.TestDuration,
+		},
+		Errors:  errors,
+		Success: len(errors) == 0 && actualRecords == expectedRecords,
+	}
 }
 
 func createTestTables(db *sql.DB, dbType string) error {

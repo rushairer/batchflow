@@ -13,6 +13,139 @@ type SQLDriver interface {
 	GenerateInsertSQL(ctx context.Context, schema *SQLSchema, data []map[string]any) (sql string, args []any, err error)
 }
 
+func prepareSQLRowsAndArgs(ctx context.Context, schema *SQLSchema, data []map[string]any) ([]map[string]any, []any, error) {
+	rows := deduplicateSQLRows(schema, data)
+	columns := schema.Columns()
+	args := make([]any, 0, len(rows)*len(columns))
+	for _, row := range rows {
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		for _, col := range columns {
+			args = append(args, row[col])
+		}
+	}
+	return rows, args, nil
+}
+
+func deduplicateSQLRows(schema *SQLSchema, data []map[string]any) []map[string]any {
+	cfg := schema.operationConfig.withDefaults()
+	switch cfg.ConflictStrategy {
+	case ConflictIgnore, ConflictReplace, ConflictUpdate:
+	default:
+		return data
+	}
+	if !cfg.DeduplicateByConflictColumns {
+		return data
+	}
+	conflictCols := sqlConflictColumns(schema)
+	if len(conflictCols) == 0 || len(data) < 2 {
+		return data
+	}
+
+	rows := make([]map[string]any, 0, len(data))
+	seen := make(map[string]int, len(data))
+	for _, row := range data {
+		key := sqlConflictKey(row, conflictCols)
+		if idx, ok := seen[key]; ok {
+			switch cfg.ConflictStrategy {
+			case ConflictIgnore:
+				continue
+			case ConflictReplace:
+				rows[idx] = cloneSQLRow(row)
+			case ConflictUpdate:
+				for _, col := range schema.Columns() {
+					if val, exists := row[col]; exists {
+						rows[idx][col] = val
+					}
+				}
+			}
+			continue
+		}
+		seen[key] = len(rows)
+		rows = append(rows, cloneSQLRow(row))
+	}
+	return rows
+}
+
+func cloneSQLRow(row map[string]any) map[string]any {
+	cloned := make(map[string]any, len(row))
+	for k, v := range row {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+func sqlConflictKey(row map[string]any, conflictCols []string) string {
+	var b strings.Builder
+	for _, col := range conflictCols {
+		val, exists := row[col]
+		fmt.Fprintf(&b, "%s=%t:%T:%#v\x00", col, exists, val, val)
+	}
+	return b.String()
+}
+
+func sqlConflictColumns(schema *SQLSchema) []string {
+	if len(schema.operationConfig.ConflictColumns) > 0 {
+		return append([]string(nil), schema.operationConfig.ConflictColumns...)
+	}
+	columns := schema.Columns()
+	if len(columns) == 0 {
+		return nil
+	}
+	return []string{columns[0]}
+}
+
+func sqlConflictColumnSet(schema *SQLSchema) map[string]struct{} {
+	conflictCols := sqlConflictColumns(schema)
+	set := make(map[string]struct{}, len(conflictCols))
+	for _, col := range conflictCols {
+		set[col] = struct{}{}
+	}
+	return set
+}
+
+func sqlUpdateColumns(schema *SQLSchema, replace bool) []string {
+	conflictSet := sqlConflictColumnSet(schema)
+	updateSet := make(map[string]struct{}, len(schema.operationConfig.UpdateColumns))
+	if !replace && len(schema.operationConfig.UpdateColumns) > 0 {
+		for _, col := range schema.operationConfig.UpdateColumns {
+			updateSet[col] = struct{}{}
+		}
+	}
+
+	columns := schema.Columns()
+	out := make([]string, 0, len(columns))
+	for _, col := range columns {
+		if _, isConflict := conflictSet[col]; isConflict {
+			continue
+		}
+		if !replace && len(updateSet) > 0 {
+			if _, ok := updateSet[col]; !ok {
+				continue
+			}
+		}
+		out = append(out, col)
+	}
+	return out
+}
+
+func mysqlUpdatePairs(columns []string) []string {
+	updatePairs := make([]string, len(columns))
+	for i, col := range columns {
+		updatePairs[i] = fmt.Sprintf("%s = VALUES(%s)", col, col)
+	}
+	return updatePairs
+}
+
+func postgresUpdatePairs(columns []string) []string {
+	updatePairs := make([]string, len(columns))
+	for i, col := range columns {
+		updatePairs[i] = fmt.Sprintf("%s = EXCLUDED.%s", col, col)
+	}
+	return updatePairs
+}
+
 var DefaultMySQLDriver = NewMySQLDriver()
 
 type MySQLDriver struct {
@@ -35,21 +168,13 @@ func (d *MySQLDriver) GenerateInsertSQL(ctx context.Context, schema *SQLSchema, 
 	if len(columns) == 0 {
 		return "", nil, errors.New("no columns defined in schema")
 	}
+	rows, args, err := prepareSQLRowsAndArgs(ctx, schema, data)
+	if err != nil {
+		return "", nil, err
+	}
 
 	columnsStr := strings.Join(columns, ", ")
-	placeholders := d.generatePlaceholders(len(columns), len(data))
-
-	// 构建参数数组
-	args := make([]any, 0, len(data)*len(columns))
-	for _, row := range data {
-		// 忽略超时或取消的请求
-		if ctx.Err() != nil {
-			return "", nil, ctx.Err()
-		}
-		for _, col := range columns {
-			args = append(args, row[col])
-		}
-	}
+	placeholders := d.generatePlaceholders(len(columns), len(rows))
 
 	baseSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 
@@ -61,11 +186,11 @@ func (d *MySQLDriver) GenerateInsertSQL(ctx context.Context, schema *SQLSchema, 
 		sql := fmt.Sprintf("REPLACE INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 		return sql, args, nil
 	case ConflictUpdate:
-		updatePairs := make([]string, len(columns))
-		for i, col := range columns {
-			updatePairs[i] = fmt.Sprintf("%s = VALUES(%s)", col, col)
+		updateColumns := sqlUpdateColumns(schema, false)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict update")
 		}
-		sql := fmt.Sprintf("%s ON DUPLICATE KEY UPDATE %s", baseSQL, strings.Join(updatePairs, ", "))
+		sql := fmt.Sprintf("%s ON DUPLICATE KEY UPDATE %s", baseSQL, strings.Join(mysqlUpdatePairs(updateColumns), ", "))
 		return sql, args, nil
 	default:
 		return baseSQL, args, nil
@@ -112,35 +237,33 @@ func (d *PostgreSQLDriver) GenerateInsertSQL(ctx context.Context, schema *SQLSch
 	if len(columns) == 0 {
 		return "", nil, errors.New("no columns defined in schema")
 	}
+	rows, args, err := prepareSQLRowsAndArgs(ctx, schema, data)
+	if err != nil {
+		return "", nil, err
+	}
 
 	columnsStr := strings.Join(columns, ", ")
-	placeholders := d.generatePlaceholders(len(columns), len(data))
-
-	// 构建参数数组
-	args := make([]any, 0, len(data)*len(columns))
-	for _, row := range data {
-		// 忽略超时或取消的请求
-		if ctx.Err() != nil {
-			return "", nil, ctx.Err()
-		}
-		for _, col := range columns {
-			args = append(args, row[col])
-		}
-	}
+	placeholders := d.generatePlaceholders(len(columns), len(rows))
 
 	baseSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 
 	switch schema.operationConfig.ConflictStrategy {
 	case ConflictIgnore:
-		sql := baseSQL + " ON CONFLICT DO NOTHING"
+		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO NOTHING", baseSQL, strings.Join(sqlConflictColumns(schema), ", "))
 		return sql, args, nil
-	case ConflictReplace, ConflictUpdate:
-		updatePairs := make([]string, len(columns))
-		for i, col := range columns {
-			updatePairs[i] = fmt.Sprintf("%s = EXCLUDED.%s", col, col)
+	case ConflictReplace:
+		updateColumns := sqlUpdateColumns(schema, true)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict replace")
 		}
-		// 假设第一个列是主键
-		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", baseSQL, columns[0], strings.Join(updatePairs, ", "))
+		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", baseSQL, strings.Join(sqlConflictColumns(schema), ", "), strings.Join(postgresUpdatePairs(updateColumns), ", "))
+		return sql, args, nil
+	case ConflictUpdate:
+		updateColumns := sqlUpdateColumns(schema, false)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict update")
+		}
+		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", baseSQL, strings.Join(sqlConflictColumns(schema), ", "), strings.Join(postgresUpdatePairs(updateColumns), ", "))
 		return sql, args, nil
 	default:
 		return baseSQL, args, nil
@@ -190,21 +313,13 @@ func (d *SQLiteDriver) GenerateInsertSQL(ctx context.Context, schema *SQLSchema,
 	if len(columns) == 0 {
 		return "", nil, errors.New("no columns defined in schema")
 	}
+	rows, args, err := prepareSQLRowsAndArgs(ctx, schema, data)
+	if err != nil {
+		return "", nil, err
+	}
 
 	columnsStr := strings.Join(columns, ", ")
-	placeholders := d.generatePlaceholders(len(columns), len(data))
-
-	// 构建参数数组
-	args := make([]any, 0, len(data)*len(columns))
-	for _, row := range data {
-		// 忽略超时或取消的请求
-		if ctx.Err() != nil {
-			return "", nil, ctx.Err()
-		}
-		for _, col := range columns {
-			args = append(args, row[col])
-		}
-	}
+	placeholders := d.generatePlaceholders(len(columns), len(rows))
 
 	baseSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 
@@ -216,8 +331,12 @@ func (d *SQLiteDriver) GenerateInsertSQL(ctx context.Context, schema *SQLSchema,
 		sql := fmt.Sprintf("INSERT OR REPLACE INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 		return sql, args, nil
 	case ConflictUpdate:
-		updatePairs := make([]string, len(columns))
-		for i, col := range columns {
+		updateColumns := sqlUpdateColumns(schema, false)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict update")
+		}
+		updatePairs := make([]string, len(updateColumns))
+		for i, col := range updateColumns {
 			updatePairs[i] = fmt.Sprintf("%s = excluded.%s", col, col)
 		}
 		sql := fmt.Sprintf("%s ON CONFLICT DO UPDATE SET %s", baseSQL, strings.Join(updatePairs, ", "))
@@ -265,21 +384,13 @@ func (d *MockDriver) GenerateInsertSQL(ctx context.Context, schema *SQLSchema, d
 	if len(columns) == 0 {
 		return "", nil, errors.New("no columns defined in schema")
 	}
+	rows, args, err := prepareSQLRowsAndArgs(ctx, schema, data)
+	if err != nil {
+		return "", nil, err
+	}
 
 	columnsStr := strings.Join(columns, ", ")
-	placeholders := d.generatePlaceholders(len(columns), len(data))
-
-	// 构建参数数组
-	args := make([]any, 0, len(data)*len(columns))
-	for _, row := range data {
-		// 忽略超时或取消的请求
-		if ctx.Err() != nil {
-			return "", nil, ctx.Err()
-		}
-		for _, col := range columns {
-			args = append(args, row[col])
-		}
-	}
+	placeholders := d.generatePlaceholders(len(columns), len(rows))
 
 	baseSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 
@@ -305,12 +416,11 @@ func (d *MockDriver) generateMySQLSQL(schema *SQLSchema, baseSQL, columnsStr, pl
 		sql := fmt.Sprintf("REPLACE INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 		return sql, args, nil
 	case ConflictUpdate:
-		columns := schema.Columns()
-		updatePairs := make([]string, len(columns))
-		for i, col := range columns {
-			updatePairs[i] = fmt.Sprintf("%s = VALUES(%s)", col, col)
+		updateColumns := sqlUpdateColumns(schema, false)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict update")
 		}
-		sql := fmt.Sprintf("%s ON DUPLICATE KEY UPDATE %s", baseSQL, strings.Join(updatePairs, ", "))
+		sql := fmt.Sprintf("%s ON DUPLICATE KEY UPDATE %s", baseSQL, strings.Join(mysqlUpdatePairs(updateColumns), ", "))
 		return sql, args, nil
 	default:
 		return baseSQL, args, nil
@@ -320,15 +430,21 @@ func (d *MockDriver) generateMySQLSQL(schema *SQLSchema, baseSQL, columnsStr, pl
 func (d *MockDriver) generatePostgreSQLSQL(schema *SQLSchema, baseSQL, _, _ string, args []any) (string, []any, error) {
 	switch schema.operationConfig.ConflictStrategy {
 	case ConflictIgnore:
-		sql := baseSQL + " ON CONFLICT DO NOTHING"
+		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO NOTHING", baseSQL, strings.Join(sqlConflictColumns(schema), ", "))
 		return sql, args, nil
-	case ConflictReplace, ConflictUpdate:
-		columns := schema.Columns()
-		updatePairs := make([]string, len(columns))
-		for i, col := range columns {
-			updatePairs[i] = fmt.Sprintf("%s = EXCLUDED.%s", col, col)
+	case ConflictReplace:
+		updateColumns := sqlUpdateColumns(schema, true)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict replace")
 		}
-		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", baseSQL, columns[0], strings.Join(updatePairs, ", "))
+		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", baseSQL, strings.Join(sqlConflictColumns(schema), ", "), strings.Join(postgresUpdatePairs(updateColumns), ", "))
+		return sql, args, nil
+	case ConflictUpdate:
+		updateColumns := sqlUpdateColumns(schema, false)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict update")
+		}
+		sql := fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", baseSQL, strings.Join(sqlConflictColumns(schema), ", "), strings.Join(postgresUpdatePairs(updateColumns), ", "))
 		return sql, args, nil
 	default:
 		return baseSQL, args, nil
@@ -344,9 +460,12 @@ func (d *MockDriver) generateSQLiteSQL(schema *SQLSchema, baseSQL, columnsStr, p
 		sql := fmt.Sprintf("INSERT OR REPLACE INTO %s (%s) VALUES %s", schema.Name(), columnsStr, placeholders)
 		return sql, args, nil
 	case ConflictUpdate:
-		columns := schema.Columns()
-		updatePairs := make([]string, len(columns))
-		for i, col := range columns {
+		updateColumns := sqlUpdateColumns(schema, false)
+		if len(updateColumns) == 0 {
+			return "", nil, errors.New("no update columns defined for conflict update")
+		}
+		updatePairs := make([]string, len(updateColumns))
+		for i, col := range updateColumns {
 			updatePairs[i] = fmt.Sprintf("%s = excluded.%s", col, col)
 		}
 		sql := fmt.Sprintf("%s ON CONFLICT DO UPDATE SET %s", baseSQL, strings.Join(updatePairs, ", "))

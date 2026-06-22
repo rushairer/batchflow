@@ -26,7 +26,7 @@ func TestMockDriver_GenerateInsertSQL_Variants(t *testing.T) {
 		{"mysql_replace", batchflow.NewMockDriver("mysql"), batchflow.ConflictReplace, "REPLACE INTO users"},
 		{"mysql_update", batchflow.NewMockDriver("mysql"), batchflow.ConflictUpdate, "ON DUPLICATE KEY UPDATE"},
 		{"pg_none", batchflow.NewMockDriver("postgresql"), batchflow.ConflictIgnore, "INSERT INTO users (id, name) VALUES"},
-		{"pg_ignore", batchflow.NewMockDriver("postgresql"), batchflow.ConflictIgnore, "ON CONFLICT DO NOTHING"},
+		{"pg_ignore", batchflow.NewMockDriver("postgresql"), batchflow.ConflictIgnore, "ON CONFLICT (id) DO NOTHING"},
 		{"pg_update", batchflow.NewMockDriver("postgresql"), batchflow.ConflictUpdate, "ON CONFLICT (id) DO UPDATE SET"},
 		{"sqlite_base", batchflow.NewMockDriver("sqlite"), batchflow.ConflictStrategy(255), "INSERT INTO users (id, name) VALUES"},
 		{"sqlite_ignore", batchflow.NewMockDriver("sqlite"), batchflow.ConflictIgnore, "INSERT OR IGNORE INTO users"},

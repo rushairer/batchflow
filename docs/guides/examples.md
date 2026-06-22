@@ -54,6 +54,110 @@ flow := batchflow.NewPostgreSQLBatchFlow(ctx, db, batchflow.PipelineConfig{
 defer flow.Close()
 ```
 
+### PostgreSQL Upsert Update
+
+PostgreSQL 推荐显式声明冲突键。`ConflictUpdate` 默认只更新非冲突列；如果只想更新部分列，使用 `WithUpdateColumns`。
+
+```go
+schema := batchflow.NewSQLSchema(
+	"users",
+	batchflow.ConflictUpdateOperationConfig.
+		WithConflictColumns("id").
+		WithUpdateColumns("name", "email"),
+	"id", "name", "email", "updated_at",
+)
+
+req := batchflow.NewRequest(schema).
+	SetInt64("id", 42).
+	SetString("name", "alice").
+	SetString("email", "alice@example.com").
+	SetTime("updated_at", time.Now().UTC())
+
+if err := flow.Submit(ctx, req); err != nil {
+	return err
+}
+```
+
+生成语义：
+
+```sql
+INSERT INTO users (...) VALUES (...)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email
+```
+
+### PostgreSQL Upsert Replace
+
+PostgreSQL 没有 MySQL `REPLACE INTO` 的 delete+insert 语义。这里的 `ConflictReplace` 采用 Hologres 风格：主键冲突时覆盖所有非冲突列。
+
+```go
+schema := batchflow.NewSQLSchema(
+	"users",
+	batchflow.ConflictReplaceOperationConfig.WithConflictColumns("id"),
+	"id", "name", "email", "updated_at",
+)
+```
+
+生成语义：
+
+```sql
+INSERT INTO users (...) VALUES (...)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, updated_at = EXCLUDED.updated_at
+```
+
+同一批次内如果出现重复冲突键，BatchFlow 会先在客户端合并，避免 PostgreSQL 一次 upsert 影响同一行多次。
+
+### PostgreSQL 复合冲突键
+
+```go
+schema := batchflow.NewSQLSchema(
+	"user_profiles",
+	batchflow.ConflictUpdateOperationConfig.
+		WithConflictColumns("tenant_id", "user_id"),
+	"tenant_id", "user_id", "display_name", "avatar_url",
+)
+```
+
+生成语义：
+
+```sql
+ON CONFLICT (tenant_id, user_id) DO UPDATE SET display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url
+```
+
+## MySQL Upsert Update / Replace
+
+MySQL `ConflictUpdate` 使用 `ON DUPLICATE KEY UPDATE`，默认更新所有非冲突列；显式配置 `WithConflictColumns` 可以避免更新主键列。
+
+```go
+schema := batchflow.NewSQLSchema(
+	"users",
+	batchflow.ConflictUpdateOperationConfig.
+		WithConflictColumns("id").
+		WithUpdateColumns("name", "email"),
+	"id", "name", "email", "updated_at",
+)
+```
+
+生成语义：
+
+```sql
+INSERT INTO users (...) VALUES (...)
+ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email)
+```
+
+MySQL `ConflictReplace` 保持数据库原生 `REPLACE INTO` 语义：
+
+```go
+schema := batchflow.NewSQLSchema(
+	"users",
+	batchflow.ConflictReplaceOperationConfig.WithConflictColumns("id"),
+	"id", "name", "email",
+)
+```
+
+```sql
+REPLACE INTO users (...) VALUES (...)
+```
+
 ## SQLite
 
 ```go

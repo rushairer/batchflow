@@ -137,6 +137,26 @@ const (
 )
 ```
 
+SQL 操作配置：
+
+```go
+type SQLOperationConfig struct {
+	ConflictStrategy ConflictStrategy
+	ConflictColumns  []string
+	UpdateColumns    []string
+	DeduplicateByConflictColumns bool
+}
+
+func (c SQLOperationConfig) WithConflictColumns(cols ...string) SQLOperationConfig
+func (c SQLOperationConfig) WithUpdateColumns(cols ...string) SQLOperationConfig
+func (c SQLOperationConfig) WithDeduplicateByConflictColumns(enabled bool) SQLOperationConfig
+```
+
+- `ConflictColumns` 用于 PostgreSQL/SQLite 的 `ON CONFLICT (...)` 目标，也用于批内同键合并；为空时兼容旧行为，使用 schema 第一列。
+- `UpdateColumns` 仅限制 `ConflictUpdate` 更新列；为空时更新所有非冲突列。
+- `DeduplicateByConflictColumns` 默认开启，避免 PostgreSQL 同一批次重复冲突键导致一次 upsert 影响同一行多次。
+- PostgreSQL 的 `ConflictReplace` 是 upsert 覆盖语义：冲突时更新所有非冲突列，不模拟 MySQL `REPLACE INTO` 的 delete+insert 语义。
+
 对应配置值：
 
 ```go
