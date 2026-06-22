@@ -64,6 +64,8 @@ type sqlMetricsRecorder struct {
 	operationGenerated int
 	operationErrors    int
 	lastStage          batchflow.SQLStage
+	lastSQLReason      string
+	lastOpReason       string
 }
 
 func (r *sqlMetricsRecorder) ObserveEnqueueLatency(d time.Duration) {}
@@ -85,12 +87,14 @@ func (r *sqlMetricsRecorder) ObserveSQLDeduplicated(table string, strategy batch
 func (r *sqlMetricsRecorder) IncSQLError(table string, stage batchflow.SQLStage, reason string) {
 	r.errors++
 	r.lastStage = stage
+	r.lastSQLReason = reason
 }
 func (r *sqlMetricsRecorder) ObserveOperationGenerated(preview batchflow.OperationPreview) {
 	r.operationGenerated++
 }
 func (r *sqlMetricsRecorder) IncOperationError(schema string, backend string, stage string, reason string) {
 	r.operationErrors++
+	r.lastOpReason = reason
 }
 
 type sqlMetricsProcessor struct{}
@@ -121,6 +125,9 @@ func TestThrottledExecutorReportsSQLErrorMetrics(t *testing.T) {
 	}
 	if reporter.errors != 1 || reporter.lastStage != batchflow.SQLStageExecute {
 		t.Fatalf("unexpected sql error metrics: errors=%d stage=%s", reporter.errors, reporter.lastStage)
+	}
+	if reporter.lastSQLReason != batchflow.ErrorReasonDuplicateKey || reporter.lastOpReason != batchflow.ErrorReasonDuplicateKey {
+		t.Fatalf("unexpected error reasons: sql=%q operation=%q", reporter.lastSQLReason, reporter.lastOpReason)
 	}
 }
 

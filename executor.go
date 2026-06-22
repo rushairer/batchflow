@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -133,29 +132,7 @@ func (e *ThrottledBatchExecutor) WithRetryConfig(cfg RetryConfig) *ThrottledBatc
 - 建议对可重试错误使用指数退避与抖动，避免热点重试风暴。
 */
 func defaultRetryClassifier(err error) (bool, string) {
-	if err == nil {
-		return false, ""
-	}
-	// 非可重试：上下文取消/超时
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false, "context"
-	}
-	// 朴素字符串分类（MySQL/PG/Redis 常见瞬态错误）
-	s := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(s, "deadlock"):
-		return true, "deadlock"
-	case strings.Contains(s, "lock wait timeout"):
-		return true, "lock_timeout"
-	case strings.Contains(s, "timeout"):
-		return true, "timeout"
-	case strings.Contains(s, "connection") && (strings.Contains(s, "refused") || strings.Contains(s, "reset") || strings.Contains(s, "closed")):
-		return true, "connection"
-	case strings.Contains(s, "broken pipe") || strings.Contains(s, "eof"):
-		return true, "io"
-	default:
-		return false, "non_retryable"
-	}
+	return ClassifyError(err)
 }
 
 // ExecuteBatch 执行批量操作
@@ -433,37 +410,10 @@ func newBatchEvent(stage, status string, attempt, batchSize int, duration time.D
 
 func defaultOperationErrorReason(err error) string {
 	if err == nil {
-		return "unknown"
+		return ErrorReasonUnknown
 	}
-	var batchErr *BatchError
-	if errors.As(err, &batchErr) && batchErr.Cause != nil {
-		err = batchErr.Cause
-	}
-	var sqlErr *SQLError
-	if errors.As(err, &sqlErr) && sqlErr.Cause != nil {
-		err = sqlErr.Cause
-	}
-	if errors.Is(err, context.Canceled) {
-		return "context_canceled"
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "context_deadline"
-	}
-	s := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(s, "duplicate"):
-		return "duplicate_key"
-	case strings.Contains(s, "deadlock"):
-		return "deadlock"
-	case strings.Contains(s, "timeout"):
-		return "timeout"
-	case strings.Contains(s, "connection"):
-		return "connection"
-	case strings.Contains(s, "syntax"):
-		return "syntax"
-	default:
-		return "other"
-	}
+	_, reason := ClassifyError(err)
+	return reason
 }
 
 func sqlPreviewFromOperation(preview OperationPreview) (SQLPreview, bool) {
