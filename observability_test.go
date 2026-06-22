@@ -137,3 +137,25 @@ func TestErrorAndSlowSampler(t *testing.T) {
 		t.Fatal("fast success event should not be sampled")
 	}
 }
+
+func TestBatchErrorDoesNotPrintAttributeValues(t *testing.T) {
+	err := &batchflow.BatchError{
+		Stage:       batchflow.BatchStageExecute,
+		Backend:     batchflow.BackendCustom,
+		Schema:      "api_events",
+		BatchSize:   1,
+		Fingerprint: "abc123",
+		Attributes: map[string]any{
+			"token": "secret-token",
+			"route": "/v1/items",
+		},
+		Cause: errors.New("upstream failed"),
+	}
+	out := err.Error()
+	if strings.Contains(out, "secret-token") || strings.Contains(out, "/v1/items") {
+		t.Fatalf("BatchError leaked attribute value: %s", out)
+	}
+	if !strings.Contains(out, "token") || !strings.Contains(out, "route") {
+		t.Fatalf("BatchError should include attribute keys: %s", out)
+	}
+}

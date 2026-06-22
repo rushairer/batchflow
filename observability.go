@@ -62,8 +62,8 @@ func (e *BatchError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("batch %s failed: backend=%s schema=%s batch_size=%d fingerprint=%s attributes=%v: %v",
-		e.Stage, e.Backend, e.Schema, e.BatchSize, e.Fingerprint, e.Attributes, e.Cause)
+	return fmt.Sprintf("batch %s failed: backend=%s schema=%s batch_size=%d fingerprint=%s attribute_keys=%v: %v",
+		e.Stage, e.Backend, e.Schema, e.BatchSize, e.Fingerprint, attributeKeys(e.Attributes), e.Cause)
 }
 
 func (e *BatchError) Unwrap() error {
@@ -300,4 +300,15 @@ func cloneAttributes(attrs map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func attributeKeys(attrs map[string]any) []string {
+	if len(attrs) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(attrs))
+	for key := range attrs {
+		keys = append(keys, key)
+	}
+	return keys
 }
