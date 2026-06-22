@@ -111,6 +111,36 @@ Retry: batchflow.RetryConfig{
 - 含义：可选指标上报器。
 - 使用方式：在 `PipelineConfig` 中直接传入。
 - 推荐：优先使用 `examples/metrics/prometheus` 中的官方示例实现。
+- SQL 场景：官方 Prometheus reporter 还实现了 `SQLMetricsReporter`，会额外上报 SQL 生成/执行错误、生成参数数量、批内冲突键去重/合并行数。
+
+### SQL Dry Run
+
+`GenerateSQLPreview` 用于在执行前检查最终 SQL：
+
+```go
+preview, err := batchflow.GenerateSQLPreview(ctx, batchflow.DefaultPostgreSQLDriver, schema, rows)
+if err != nil {
+	var sqlErr *batchflow.SQLError
+	if errors.As(err, &sqlErr) {
+		log.Printf("sql generate failed: stage=%s table=%s conflict=%v update=%v args=%d cause=%v",
+			sqlErr.Stage, sqlErr.Table, sqlErr.ConflictColumns, sqlErr.UpdateColumns, sqlErr.ArgsCount, sqlErr.Cause)
+	}
+	return err
+}
+
+log.Printf("sql dry-run: table=%s fingerprint=%s args=%d input=%d output=%d dedup=%d merged=%d sql=%s",
+	preview.Table,
+	preview.Fingerprint,
+	preview.ArgsCount,
+	preview.DedupStats.InputRows,
+	preview.DedupStats.OutputRows,
+	preview.DedupStats.DeduplicatedRows,
+	preview.DedupStats.MergedRows,
+	preview.SQL,
+)
+```
+
+注意：`preview.Args` 包含原始参数值，可能有 PII 或业务敏感数据。生产日志默认不要打印 `Args`。
 
 ### ConcurrencyLimit
 

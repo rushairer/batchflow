@@ -72,6 +72,30 @@ func (r *Reporter) IncError(_ string, reason string) {
 	r.m.incError(r.Database, r.InstanceID, reason)
 }
 
+// ObserveSQLGenerated records final SQL generation metadata without raw SQL or args.
+func (r *Reporter) ObserveSQLGenerated(table string, inputRows, outputRows, argsCount int) {
+	if r.m == nil {
+		return
+	}
+	r.m.observeSQLGenerated(r.Database, r.InstanceID, table, inputRows, outputRows, argsCount)
+}
+
+// ObserveSQLDeduplicated records rows removed or merged by conflict-key deduplication.
+func (r *Reporter) ObserveSQLDeduplicated(table string, strategy batchflow.ConflictStrategy, deduplicatedRows, mergedRows int) {
+	if r.m == nil {
+		return
+	}
+	r.m.observeSQLDeduplicated(r.Database, r.InstanceID, table, conflictStrategyLabel(strategy), deduplicatedRows, mergedRows)
+}
+
+// IncSQLError records SQL generation/execution errors by stage and coarse reason.
+func (r *Reporter) IncSQLError(table string, stage batchflow.SQLStage, reason string) {
+	if r.m == nil {
+		return
+	}
+	r.m.incSQLError(r.Database, r.InstanceID, table, string(stage), reason)
+}
+
 // SetConcurrency 执行并发度
 func (r *Reporter) SetConcurrency(n int) {
 	if r.m == nil {
@@ -175,6 +199,20 @@ func (r *Reporter) ObserveSchemaGroupsPerFlush(n int) {
 // 确保实现接口
 var (
 	_ batchflow.MetricsReporter          = (*Reporter)(nil)
+	_ batchflow.SQLMetricsReporter       = (*Reporter)(nil)
 	_ batchflow.PipelineMetricsReporter  = (*Reporter)(nil)
 	_ batchflow.BatchFlowMetricsReporter = (*Reporter)(nil)
 )
+
+func conflictStrategyLabel(strategy batchflow.ConflictStrategy) string {
+	switch strategy {
+	case batchflow.ConflictIgnore:
+		return "ignore"
+	case batchflow.ConflictReplace:
+		return "replace"
+	case batchflow.ConflictUpdate:
+		return "update"
+	default:
+		return "unknown"
+	}
+}

@@ -225,6 +225,63 @@ func (e *ThrottledBatchExecutor) WithMetricsReporter(reporter MetricsReporter) *
 func (e *ThrottledBatchExecutor) MetricsReporter() MetricsReporter
 ```
 
+## SQL Dry Run 与错误诊断
+
+最终 SQL 预览：
+
+```go
+type SQLPreview struct {
+	Table            string
+	SQL              string
+	Args             []any
+	ArgsCount        int
+	Columns          []string
+	ConflictStrategy ConflictStrategy
+	ConflictColumns  []string
+	UpdateColumns    []string
+	DedupStats       SQLDedupStats
+	Fingerprint      string
+}
+
+type SQLDedupStats struct {
+	InputRows        int
+	OutputRows       int
+	DeduplicatedRows int
+	MergedRows       int
+}
+
+func GenerateSQLPreview(ctx context.Context, driver SQLDriver, schema *SQLSchema, data []map[string]any) (SQLPreview, error)
+func FingerprintSQL(sqlText string) string
+```
+
+`GenerateSQLPreview` 不访问数据库，返回的 SQL 与真实执行路径使用同一套 driver 生成逻辑。`Args` 可能包含敏感数据，生产日志建议只记录 `ArgsCount`、`Fingerprint`、冲突列、更新列和去重统计。
+
+SQL 结构化错误：
+
+```go
+type SQLStage string
+
+const (
+	SQLStageValidate SQLStage = "validate"
+	SQLStageGenerate SQLStage = "generate"
+	SQLStageExecute  SQLStage = "execute"
+)
+
+type SQLError struct {
+	Stage            SQLStage
+	Table            string
+	BatchSize        int
+	ConflictStrategy ConflictStrategy
+	ConflictColumns  []string
+	UpdateColumns    []string
+	SQLFingerprint   string
+	ArgsCount        int
+	Cause            error
+}
+```
+
+执行失败时可用 `errors.As(err, *SQLError)` 提取阶段、表名、冲突键、SQL 指纹和参数数量。默认错误文本不包含参数值。
+
 ## Metrics 接口
 
 ### MetricsReporter
@@ -248,6 +305,18 @@ type MetricsReporter interface {
 
 - `ObserveBatchSize` 表示单个 schema 执行批的大小。
 - `ObserveExecuteDuration` 只表示执行耗时，不应该再重复记录 batch size。
+
+### SQLMetricsReporter
+
+```go
+type SQLMetricsReporter interface {
+	ObserveSQLGenerated(table string, inputRows, outputRows, argsCount int)
+	ObserveSQLDeduplicated(table string, strategy ConflictStrategy, deduplicatedRows, mergedRows int)
+	IncSQLError(table string, stage SQLStage, reason string)
+}
+```
+
+这是可选扩展接口。官方 Prometheus 示例已经实现该接口，用于区分 SQL 生成错误、执行错误、参数数量和批内冲突键合并情况。
 
 ### PipelineMetricsReporter
 

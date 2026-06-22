@@ -30,6 +30,80 @@ netstat -tlnp | grep -E "(3000|9090|3306|5432|6379)"
 
 ## 🚨 常见问题解决
 
+### 0. SQL 写入诊断
+
+#### 检查最终 SQL，不执行数据库
+
+当 PostgreSQL/MySQL 的 `update` 或 `replace` 行为异常时，先用 dry-run 检查最终 SQL：
+
+```go
+preview, err := batchflow.GenerateSQLPreview(ctx, batchflow.DefaultPostgreSQLDriver, schema, rows)
+if err != nil {
+    var sqlErr *batchflow.SQLError
+    if errors.As(err, &sqlErr) {
+        log.Printf("sql generate failed: stage=%s table=%s conflict=%v update=%v fingerprint=%s args=%d cause=%v",
+            sqlErr.Stage,
+            sqlErr.Table,
+            sqlErr.ConflictColumns,
+            sqlErr.UpdateColumns,
+            sqlErr.SQLFingerprint,
+            sqlErr.ArgsCount,
+            sqlErr.Cause,
+        )
+    }
+    return err
+}
+
+log.Printf("sql dry-run: table=%s fingerprint=%s args=%d input=%d output=%d dedup=%d merged=%d sql=%s",
+    preview.Table,
+    preview.Fingerprint,
+    preview.ArgsCount,
+    preview.DedupStats.InputRows,
+    preview.DedupStats.OutputRows,
+    preview.DedupStats.DeduplicatedRows,
+    preview.DedupStats.MergedRows,
+    preview.SQL,
+)
+```
+
+生产环境不要默认打印 `preview.Args`，参数值可能包含敏感数据。
+
+#### PostgreSQL: cannot affect row a second time
+
+常见原因：
+
+- 同一个 batch 内有重复 conflict key。
+- `ConflictColumns` 未显式配置，兼容兜底使用了 schema 第一列，但真实唯一键不是第一列。
+- `UpdateColumns` 误包含冲突键，导致生成阶段无法找到可更新列。
+
+检查项：
+
+- dry-run 输出里的 `ConflictColumns` 是否等于真实主键/唯一键。
+- `DedupStats.InputRows` 是否大于 `DedupStats.OutputRows`。
+- Prometheus `sql_deduplicated_rows_total` 是否持续增长。
+- PostgreSQL SQL 是否包含 `ON CONFLICT (真实冲突列...) DO UPDATE SET ...`。
+
+#### 解包执行错误
+
+```go
+if err := flow.Close(); err != nil {
+    var sqlErr *batchflow.SQLError
+    if errors.As(err, &sqlErr) {
+        log.Printf("sql failed: stage=%s table=%s fingerprint=%s args=%d conflict=%v update=%v cause=%v",
+            sqlErr.Stage,
+            sqlErr.Table,
+            sqlErr.SQLFingerprint,
+            sqlErr.ArgsCount,
+            sqlErr.ConflictColumns,
+            sqlErr.UpdateColumns,
+            sqlErr.Cause,
+        )
+    }
+}
+```
+
+异步错误也会通过 `ErrorChan` 返回，处理方式相同。
+
 ### 1. 连接和配置问题
 
 #### MySQL 连接失败

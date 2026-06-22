@@ -40,12 +40,15 @@ type Metrics struct {
 	// Counter
 	totalErrors         *prometheus.CounterVec
 	submitRejectedTotal *prometheus.CounterVec
+	sqlErrorsTotal      *prometheus.CounterVec
 
 	// Histogram
 	enqueueLatency       *prometheus.HistogramVec
 	assembleDuration     *prometheus.HistogramVec
 	executeDuration      *prometheus.HistogramVec
 	batchSize            *prometheus.HistogramVec
+	sqlGeneratedRows     *prometheus.HistogramVec
+	sqlGeneratedArgs     *prometheus.HistogramVec
 	pipelineFlushSize    *prometheus.HistogramVec
 	schemaGroupsPerFlush *prometheus.HistogramVec
 
@@ -53,6 +56,9 @@ type Metrics struct {
 	executorConcurrency *prometheus.GaugeVec
 	queueLength         *prometheus.GaugeVec
 	inflightBatches     *prometheus.GaugeVec
+
+	// SQL 指标
+	sqlDeduplicatedRows *prometheus.CounterVec
 
 	// Pipeline 指标（可选）
 	pipelineDequeueLatency  *prometheus.HistogramVec
@@ -86,10 +92,14 @@ func NewMetrics(opts Options) *Metrics {
 
 	labelsErrors := []string{"database", "error_type"}
 	labelsRejected := []string{"database", "reason"}
+	labelsSQLErrors := []string{"database", "stage", "reason"}
 	labelsEnqueue := []string{"database"}
 	labelsAssemble := []string{"database"}
 	labelsExecute := []string{"database"}
 	labelsBatchSize := []string{"database"}
+	labelsSQLRows := []string{"database", "kind"}
+	labelsSQLArgs := []string{"database"}
+	labelsSQLDedup := []string{"database", "strategy", "kind"}
 	labelsFlushSize := []string{"database"}
 	labelsSchemaGroups := []string{"database"}
 	labelsConcurrency := []string{"database"}
@@ -102,10 +112,14 @@ func NewMetrics(opts Options) *Metrics {
 	if opts.IncludeInstanceID {
 		labelsErrors = append(labelsErrors[:1], append([]string{"instance_id"}, labelsErrors[1:]...)...)
 		labelsRejected = append(labelsRejected[:1], append([]string{"instance_id"}, labelsRejected[1:]...)...)
+		labelsSQLErrors = []string{"database", "instance_id", "stage", "reason"}
 		labelsEnqueue = append(labelsEnqueue, "instance_id")
 		labelsAssemble = append(labelsAssemble, "instance_id")
 		labelsExecute = append(labelsExecute, "instance_id")
 		labelsBatchSize = append(labelsBatchSize, "instance_id")
+		labelsSQLRows = []string{"database", "instance_id", "kind"}
+		labelsSQLArgs = []string{"database", "instance_id"}
+		labelsSQLDedup = []string{"database", "instance_id", "strategy", "kind"}
 		labelsFlushSize = append(labelsFlushSize, "instance_id")
 		labelsSchemaGroups = append(labelsSchemaGroups, "instance_id")
 		labelsConcurrency = append(labelsConcurrency, "instance_id")
@@ -117,6 +131,10 @@ func NewMetrics(opts Options) *Metrics {
 	}
 	if opts.IncludeTable {
 		labelsExecute = append(labelsExecute, "table")
+		labelsSQLErrors = append(labelsSQLErrors, "table")
+		labelsSQLRows = append(labelsSQLRows, "table")
+		labelsSQLArgs = append(labelsSQLArgs, "table")
+		labelsSQLDedup = append(labelsSQLDedup, "table")
 	}
 
 	m := &Metrics{
@@ -140,6 +158,16 @@ func NewMetrics(opts Options) *Metrics {
 				ConstLabels: cl,
 			},
 			labelsRejected,
+		),
+		sqlErrorsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "sql_errors_total",
+				Help:        "Total number of SQL generation or execution errors by stage and reason",
+				ConstLabels: cl,
+			},
+			labelsSQLErrors,
 		),
 		enqueueLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -184,6 +212,38 @@ func NewMetrics(opts Options) *Metrics {
 				ConstLabels: cl,
 			},
 			labelsBatchSize,
+		),
+		sqlGeneratedRows: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "sql_generated_rows",
+				Help:        "Input and output row count observed during SQL generation",
+				Buckets:     opts.BatchSizeBuckets,
+				ConstLabels: cl,
+			},
+			labelsSQLRows,
+		),
+		sqlGeneratedArgs: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "sql_generated_args",
+				Help:        "Number of SQL args generated per batch",
+				Buckets:     prometheus.ExponentialBuckets(1, 2, 16),
+				ConstLabels: cl,
+			},
+			labelsSQLArgs,
+		),
+		sqlDeduplicatedRows: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace:   ns,
+				Subsystem:   ss,
+				Name:        "sql_deduplicated_rows_total",
+				Help:        "Total number of SQL rows deduplicated or merged before execution",
+				ConstLabels: cl,
+			},
+			labelsSQLDedup,
 		),
 		pipelineFlushSize: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -279,10 +339,14 @@ func NewMetrics(opts Options) *Metrics {
 	reg.MustRegister(
 		m.totalErrors,
 		m.submitRejectedTotal,
+		m.sqlErrorsTotal,
 		m.enqueueLatency,
 		m.assembleDuration,
 		m.executeDuration,
 		m.batchSize,
+		m.sqlGeneratedRows,
+		m.sqlGeneratedArgs,
+		m.sqlDeduplicatedRows,
 		m.pipelineFlushSize,
 		m.schemaGroupsPerFlush,
 		m.executorConcurrency,
@@ -351,6 +415,24 @@ func (m *Metrics) incError(database, instanceID, reason string) {
 	m.totalErrors.WithLabelValues(labels...).Inc()
 }
 
+func (m *Metrics) incSQLError(database, instanceID, table, stage, reason string) {
+	if m.sqlErrorsTotal == nil {
+		return
+	}
+	labels := []string{database, stage, reason}
+	hasInstanceID := hasLabel(m.sqlErrorsTotal, "instance_id")
+	hasTable := hasLabel(m.sqlErrorsTotal, "table")
+	switch {
+	case hasInstanceID && hasTable:
+		labels = []string{database, instanceID, stage, reason, table}
+	case hasInstanceID:
+		labels = []string{database, instanceID, stage, reason}
+	case hasTable:
+		labels = []string{database, stage, reason, table}
+	}
+	m.sqlErrorsTotal.WithLabelValues(labels...).Inc()
+}
+
 func (m *Metrics) incSubmitRejected(database, instanceID, reason string) {
 	if m.submitRejectedTotal == nil {
 		return
@@ -362,6 +444,72 @@ func (m *Metrics) incSubmitRejected(database, instanceID, reason string) {
 		labels = []string{database, reason}
 	}
 	m.submitRejectedTotal.WithLabelValues(labels...).Inc()
+}
+
+func (m *Metrics) observeSQLGenerated(database, instanceID, table string, inputRows, outputRows, argsCount int) {
+	if m.sqlGeneratedRows == nil || m.sqlGeneratedArgs == nil {
+		return
+	}
+	m.sqlGeneratedRows.WithLabelValues(sqlRowsLabels(m.sqlGeneratedRows, database, instanceID, table, "input")...).Observe(float64(inputRows))
+	m.sqlGeneratedRows.WithLabelValues(sqlRowsLabels(m.sqlGeneratedRows, database, instanceID, table, "output")...).Observe(float64(outputRows))
+	m.sqlGeneratedArgs.WithLabelValues(sqlArgsLabels(m.sqlGeneratedArgs, database, instanceID, table)...).Observe(float64(argsCount))
+}
+
+func (m *Metrics) observeSQLDeduplicated(database, instanceID, table, strategy string, deduplicatedRows, mergedRows int) {
+	if m.sqlDeduplicatedRows == nil {
+		return
+	}
+	if deduplicatedRows > 0 {
+		m.sqlDeduplicatedRows.WithLabelValues(sqlDedupLabels(m.sqlDeduplicatedRows, database, instanceID, table, strategy, "deduplicated")...).Add(float64(deduplicatedRows))
+	}
+	if mergedRows > 0 {
+		m.sqlDeduplicatedRows.WithLabelValues(sqlDedupLabels(m.sqlDeduplicatedRows, database, instanceID, table, strategy, "merged")...).Add(float64(mergedRows))
+	}
+}
+
+func sqlRowsLabels(collector prometheus.Collector, database, instanceID, table, kind string) []string {
+	hasInstanceID := hasLabel(collector, "instance_id")
+	hasTable := hasLabel(collector, "table")
+	switch {
+	case hasInstanceID && hasTable:
+		return []string{database, instanceID, kind, table}
+	case hasInstanceID:
+		return []string{database, instanceID, kind}
+	case hasTable:
+		return []string{database, kind, table}
+	default:
+		return []string{database, kind}
+	}
+}
+
+func sqlArgsLabels(collector prometheus.Collector, database, instanceID, table string) []string {
+	hasInstanceID := hasLabel(collector, "instance_id")
+	hasTable := hasLabel(collector, "table")
+	switch {
+	case hasInstanceID && hasTable:
+		return []string{database, instanceID, table}
+	case hasInstanceID:
+		return []string{database, instanceID}
+	case hasTable:
+		return []string{database, table}
+	default:
+		return []string{database}
+	}
+}
+
+func sqlDedupLabels(collector prometheus.Collector, database, instanceID, table, strategy, kind string) []string {
+	hasInstanceID := hasLabel(collector, "instance_id")
+	hasTable := hasLabel(collector, "table")
+	switch {
+	case hasInstanceID && hasTable:
+		return []string{database, instanceID, strategy, kind, table}
+	case hasInstanceID:
+		return []string{database, instanceID, strategy, kind}
+	case hasTable:
+		return []string{database, strategy, kind, table}
+	default:
+		return []string{database, strategy, kind}
+	}
 }
 
 func (m *Metrics) observeEnqueue(database, instanceID string, d time.Duration) {

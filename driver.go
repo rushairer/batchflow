@@ -14,7 +14,7 @@ type SQLDriver interface {
 }
 
 func prepareSQLRowsAndArgs(ctx context.Context, schema *SQLSchema, data []map[string]any) ([]map[string]any, []any, error) {
-	rows := deduplicateSQLRows(schema, data)
+	rows, _ := deduplicateSQLRowsWithStats(schema, data)
 	columns := schema.Columns()
 	args := make([]any, 0, len(rows)*len(columns))
 	for _, row := range rows {
@@ -29,18 +29,27 @@ func prepareSQLRowsAndArgs(ctx context.Context, schema *SQLSchema, data []map[st
 }
 
 func deduplicateSQLRows(schema *SQLSchema, data []map[string]any) []map[string]any {
+	rows, _ := deduplicateSQLRowsWithStats(schema, data)
+	return rows
+}
+
+func deduplicateSQLRowsWithStats(schema *SQLSchema, data []map[string]any) ([]map[string]any, SQLDedupStats) {
+	stats := SQLDedupStats{
+		InputRows:  len(data),
+		OutputRows: len(data),
+	}
 	cfg := schema.operationConfig.withDefaults()
 	switch cfg.ConflictStrategy {
 	case ConflictIgnore, ConflictReplace, ConflictUpdate:
 	default:
-		return data
+		return data, stats
 	}
 	if !cfg.DeduplicateByConflictColumns {
-		return data
+		return data, stats
 	}
 	conflictCols := sqlConflictColumns(schema)
 	if len(conflictCols) == 0 || len(data) < 2 {
-		return data
+		return data, stats
 	}
 
 	rows := make([]map[string]any, 0, len(data))
@@ -50,22 +59,26 @@ func deduplicateSQLRows(schema *SQLSchema, data []map[string]any) []map[string]a
 		if idx, ok := seen[key]; ok {
 			switch cfg.ConflictStrategy {
 			case ConflictIgnore:
+				stats.DeduplicatedRows++
 				continue
 			case ConflictReplace:
 				rows[idx] = cloneSQLRow(row)
+				stats.DeduplicatedRows++
 			case ConflictUpdate:
 				for _, col := range schema.Columns() {
 					if val, exists := row[col]; exists {
 						rows[idx][col] = val
 					}
 				}
+				stats.MergedRows++
 			}
 			continue
 		}
 		seen[key] = len(rows)
 		rows = append(rows, cloneSQLRow(row))
 	}
-	return rows
+	stats.OutputRows = len(rows)
+	return rows, stats
 }
 
 func cloneSQLRow(row map[string]any) map[string]any {

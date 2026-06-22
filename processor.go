@@ -51,18 +51,22 @@ func (bp *SQLBatchProcessor) WithTimeout(timeout time.Duration) *SQLBatchProcess
 	return bp
 }
 
+func (bp *SQLBatchProcessor) GenerateSQLPreview(ctx context.Context, schema *SQLSchema, data []map[string]any) (SQLPreview, error) {
+	return GenerateSQLPreview(ctx, bp.driver, schema, data)
+}
+
 func (bp *SQLBatchProcessor) GenerateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (operations Operations, err error) {
 	s, ok := schema.(*SQLSchema)
 	if !ok {
-		return nil, errors.New("schema is not a SQLSchema")
+		return nil, &SQLError{Stage: SQLStageValidate, Table: schema.Name(), BatchSize: len(data), Cause: errors.New("schema is not a SQLSchema")}
 	}
 
-	sql, args, innerErr := bp.driver.GenerateInsertSQL(ctx, s, data)
+	preview, innerErr := bp.GenerateSQLPreview(ctx, s, data)
 	if innerErr != nil {
 		return nil, innerErr
 	}
-	operations = append(operations, sql)
-	operations = append(operations, args...)
+	operations = append(operations, preview.SQL)
+	operations = append(operations, preview.Args...)
 	return operations, nil
 }
 
@@ -82,11 +86,34 @@ func (bp *SQLBatchProcessor) ExecuteOperations(ctx context.Context, operations O
 	}
 
 	if len(operations) < 1 {
-		return errors.New("empty operations")
+		return &SQLError{Stage: SQLStageValidate, Cause: errors.New("empty operations")}
+	}
+
+	if preview, ok := operations[0].(SQLPreview); ok {
+		_, err := bp.db.ExecContext(ctx, preview.SQL, preview.Args...)
+		if err != nil && errors.Is(err, context.DeadlineExceeded) {
+			if cause := context.Cause(ctx); cause != nil {
+				err = cause
+			}
+		}
+		if err != nil {
+			return &SQLError{
+				Stage:            SQLStageExecute,
+				Table:            preview.Table,
+				BatchSize:        preview.DedupStats.InputRows,
+				ConflictStrategy: preview.ConflictStrategy,
+				ConflictColumns:  preview.ConflictColumns,
+				UpdateColumns:    preview.UpdateColumns,
+				SQLFingerprint:   preview.Fingerprint,
+				ArgsCount:        preview.ArgsCount,
+				Cause:            err,
+			}
+		}
+		return nil
 	}
 
 	if sql, ok := operations[0].(string); ok {
-		args := operations[1:]
+		args := sqlOperationArgs(operations)
 		_, err := bp.db.ExecContext(ctx, sql, args...)
 		// processor 会捕获超时异常, 可以出发重试
 		if err != nil && errors.Is(err, context.DeadlineExceeded) {
@@ -94,9 +121,21 @@ func (bp *SQLBatchProcessor) ExecuteOperations(ctx context.Context, operations O
 				return cause
 			}
 		}
+		if err != nil {
+			return &SQLError{
+				Stage:          SQLStageExecute,
+				SQLFingerprint: FingerprintSQL(sql),
+				ArgsCount:      len(args),
+				Cause:          err,
+			}
+		}
 		return err
 	}
-	return errors.New("invalid operation type")
+	return &SQLError{Stage: SQLStageValidate, Cause: errors.New("invalid operation type")}
+}
+
+func sqlOperationArgs(operations Operations) []any {
+	return operations[1:]
 }
 
 // RedisBatchProcessor Redis批量处理器

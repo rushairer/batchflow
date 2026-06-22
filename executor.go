@@ -191,9 +191,18 @@ RETRY:
 	for attempt := 1; attempt <= attempts; attempt++ {
 		// 生成与执行（一次尝试）
 		var operations Operations
-		operations, err = e.processor.GenerateOperations(ctx, schema, data)
+		var preview SQLPreview
+		var hasPreview bool
+		operations, preview, hasPreview, err = e.generateOperations(ctx, schema, data)
+		if err != nil {
+			e.reportSQLError(schema.Name(), SQLStageGenerate, err)
+		}
+		e.reportSQLGenerated(schema.Name(), operations, data, preview, hasPreview)
 		if err == nil {
 			err = e.processor.ExecuteOperations(ctx, operations)
+			if err != nil {
+				e.reportSQLError(schema.Name(), SQLStageExecute, err)
+			}
 		}
 
 		if err == nil {
@@ -270,6 +279,90 @@ func (e *ThrottledBatchExecutor) WithMetricsReporter(metricsReporter MetricsRepo
 
 // MetricsReporter 获取指标报告器
 func (e *ThrottledBatchExecutor) MetricsReporter() MetricsReporter { return e.metricsReporter }
+
+func (e *ThrottledBatchExecutor) generateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, SQLPreview, bool, error) {
+	if p, ok := e.processor.(interface {
+		GenerateSQLPreview(context.Context, *SQLSchema, []map[string]any) (SQLPreview, error)
+	}); ok {
+		sqlSchema, ok := schema.(*SQLSchema)
+		if !ok {
+			err := &SQLError{Stage: SQLStageValidate, Table: schema.Name(), BatchSize: len(data), Cause: errors.New("schema is not a SQLSchema")}
+			return nil, SQLPreview{}, false, err
+		}
+		preview, err := p.GenerateSQLPreview(ctx, sqlSchema, data)
+		if err != nil {
+			return nil, preview, preview.SQL != "", err
+		}
+		ops := make(Operations, 0, 1+len(preview.Args))
+		ops = append(ops, preview.SQL)
+		ops = append(ops, preview.Args...)
+		return ops, preview, true, nil
+	}
+	ops, err := e.processor.GenerateOperations(ctx, schema, data)
+	return ops, SQLPreview{}, false, err
+}
+
+func (e *ThrottledBatchExecutor) reportSQLGenerated(table string, operations Operations, data []map[string]any, preview SQLPreview, hasPreview bool) {
+	reporter, ok := e.metricsReporter.(SQLMetricsReporter)
+	if !ok || len(operations) == 0 {
+		return
+	}
+	sqlText, ok := operations[0].(string)
+	if !ok {
+		return
+	}
+	if hasPreview {
+		reporter.ObserveSQLGenerated(table, preview.DedupStats.InputRows, preview.DedupStats.OutputRows, preview.ArgsCount)
+		reporter.ObserveSQLDeduplicated(table, preview.ConflictStrategy, preview.DedupStats.DeduplicatedRows, preview.DedupStats.MergedRows)
+		return
+	}
+	argsCount := len(sqlOperationArgs(operations))
+	reporter.ObserveSQLGenerated(table, len(data), len(data), argsCount)
+	_ = sqlText
+}
+
+func (e *ThrottledBatchExecutor) reportSQLError(table string, stage SQLStage, err error) {
+	reporter, ok := e.metricsReporter.(SQLMetricsReporter)
+	if !ok || err == nil {
+		return
+	}
+	reason := "unknown"
+	var sqlErr *SQLError
+	if errors.As(err, &sqlErr) {
+		stage = sqlErr.Stage
+		reason = defaultSQLErrorReason(sqlErr.Cause)
+	} else {
+		reason = defaultSQLErrorReason(err)
+	}
+	reporter.IncSQLError(table, stage, reason)
+}
+
+func defaultSQLErrorReason(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "context_canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "context_deadline"
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "duplicate"):
+		return "duplicate_key"
+	case strings.Contains(s, "deadlock"):
+		return "deadlock"
+	case strings.Contains(s, "timeout"):
+		return "timeout"
+	case strings.Contains(s, "connection"):
+		return "connection"
+	case strings.Contains(s, "syntax"):
+		return "syntax"
+	default:
+		return "other"
+	}
+}
 
 // WithConcurrencyLimit 设置并发上限（limit <= 0 表示不启用限流）
 func (e *ThrottledBatchExecutor) WithConcurrencyLimit(limit int) *ThrottledBatchExecutor {

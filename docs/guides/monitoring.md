@@ -59,6 +59,13 @@ defer flow.Close()
 - `inflight_batches`
 - `errors_total`
 
+### SQL Diagnostics
+
+- `sql_errors_total`
+- `sql_generated_rows`
+- `sql_generated_args`
+- `sql_deduplicated_rows_total`
+
 ## 关键语义
 
 ### `batch_size`
@@ -85,6 +92,34 @@ defer flow.Close()
 - `missing_column`
 - `empty_schema_name`
 
+### `sql_errors_total`
+
+表示 SQL 生成或执行阶段的错误，标签包含：
+
+- `stage`：`validate`、`generate`、`execute`
+- `reason`：低基数错误分类，如 `duplicate_key`、`deadlock`、`timeout`、`connection`、`syntax`、`other`
+- `table`：仅在 `Options.IncludeTable=true` 时启用
+
+不要把原始 SQL 或参数值作为 Prometheus label。需要定位具体 SQL 时使用日志中的 `SQLPreview.Fingerprint` 或 `SQLError.SQLFingerprint`。
+
+### `sql_generated_rows`
+
+记录 SQL 生成前后的行数：
+
+- `kind="input"`：调用 `ExecuteBatch` 时收到的原始行数。
+- `kind="output"`：批内冲突键去重/合并后实际进入 SQL 的行数。
+
+如果 PostgreSQL 曾出现 `ON CONFLICT DO UPDATE command cannot affect row a second time`，应重点检查 `input` 与 `output` 的差值，以及 `sql_deduplicated_rows_total`。
+
+### `sql_deduplicated_rows_total`
+
+记录批内同 conflict key 的处理：
+
+- `strategy="ignore"`：重复 key 保留第一条。
+- `strategy="replace"`：重复 key 保留最后一条。
+- `strategy="update"`：重复 key 合并字段。
+- `kind="deduplicated"` 或 `kind="merged"` 表示移除或合并的行数。
+
 ## 推荐告警
 
 ### 队列和背压
@@ -105,6 +140,14 @@ sum(rate(batchflow_errors_total{error_type=~"final:.*"}[5m])) by (instance_id, e
 
 ```promql
 histogram_quantile(0.99, sum by (le, instance_id, status) (rate(batchflow_execute_duration_seconds_bucket[5m])))
+```
+
+```promql
+sum(rate(batchflow_sql_errors_total[5m])) by (instance_id, stage, reason)
+```
+
+```promql
+sum(rate(batchflow_sql_deduplicated_rows_total[5m])) by (instance_id, strategy, kind)
 ```
 
 ### flush 结构复杂度
@@ -134,6 +177,8 @@ histogram_quantile(0.95, sum by (le, instance_id) (rate(batchflow_schema_groups_
 - `execute_duration_seconds`
 - `batch_size`
 - `errors_total`
+- `sql_errors_total`
+- `sql_deduplicated_rows_total`
 - `inflight_batches`
 
 ## 常见误区
