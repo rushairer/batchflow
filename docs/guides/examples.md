@@ -222,6 +222,22 @@ defer flow.Close()
 - [HTTP batch processor](../../examples/custom/http_processor_example_test.go)
 - [Bulk write processor](../../examples/custom/bulk_write_processor_example_test.go)
 
+## 非 SQL 批内合并
+
+Redis、HTTP、MongoDB 等非 SQL 后端可以通过 `PipelineConfig.Coalescer` 显式启用同批次同 key 合并：
+
+```go
+flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
+	BufferSize:    1000,
+	FlushSize:     100,
+	FlushInterval: 100 * time.Millisecond,
+	Coalescer:     batchflow.NewKeyCoalescer(batchflow.CoalesceKeepLast, "key"),
+})
+defer flow.Close()
+```
+
+SQL update/replace 不需要在 `PipelineConfig` 再配 coalescer；SQL 默认根据 `SQLOperationConfig.ConflictColumns` 执行 conflict-key 合并，并在 SQL dry-run 里输出 dedup 统计。
+
 ## 带重试和限流
 
 ```go

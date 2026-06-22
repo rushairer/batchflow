@@ -14,7 +14,10 @@ type SQLDriver interface {
 }
 
 func prepareSQLRowsAndArgs(ctx context.Context, schema *SQLSchema, data []map[string]any) ([]map[string]any, []any, error) {
-	rows, _ := deduplicateSQLRowsWithStats(schema, data)
+	rows, _, err := deduplicateSQLRowsWithStatsCtx(ctx, schema, data)
+	if err != nil {
+		return nil, nil, err
+	}
 	columns := schema.Columns()
 	args := make([]any, 0, len(rows)*len(columns))
 	for _, row := range rows {
@@ -28,74 +31,51 @@ func prepareSQLRowsAndArgs(ctx context.Context, schema *SQLSchema, data []map[st
 	return rows, args, nil
 }
 
-func deduplicateSQLRows(schema *SQLSchema, data []map[string]any) []map[string]any {
-	rows, _ := deduplicateSQLRowsWithStats(schema, data)
-	return rows
+func newSQLCoalescer(schema *SQLSchema) Coalescer {
+	if schema == nil {
+		return CoalescerFunc(func(_ context.Context, _ SchemaInterface, batch Batch) (CoalesceResult, error) {
+			return NewCoalesceResult(batch), nil
+		})
+	}
+	cfg := schema.operationConfig.withDefaults()
+	if !cfg.DeduplicateByConflictColumns {
+		return CoalescerFunc(func(_ context.Context, _ SchemaInterface, batch Batch) (CoalesceResult, error) {
+			return NewCoalesceResult(batch), nil
+		})
+	}
+	var strategy CoalesceStrategy
+	switch cfg.ConflictStrategy {
+	case ConflictIgnore:
+		strategy = CoalesceKeepFirst
+	case ConflictReplace:
+		strategy = CoalesceKeepLast
+	case ConflictUpdate:
+		strategy = CoalesceMergePresentFields
+	default:
+		return CoalescerFunc(func(_ context.Context, _ SchemaInterface, batch Batch) (CoalesceResult, error) {
+			return NewCoalesceResult(batch), nil
+		})
+	}
+	return NewKeyCoalescer(strategy, sqlConflictColumns(schema)...)
 }
 
 func deduplicateSQLRowsWithStats(schema *SQLSchema, data []map[string]any) ([]map[string]any, SQLDedupStats) {
-	stats := SQLDedupStats{
-		InputRows:  len(data),
-		OutputRows: len(data),
-	}
-	cfg := schema.operationConfig.withDefaults()
-	switch cfg.ConflictStrategy {
-	case ConflictIgnore, ConflictReplace, ConflictUpdate:
-	default:
-		return data, stats
-	}
-	if !cfg.DeduplicateByConflictColumns {
-		return data, stats
-	}
-	conflictCols := sqlConflictColumns(schema)
-	if len(conflictCols) == 0 || len(data) < 2 {
-		return data, stats
-	}
-
-	rows := make([]map[string]any, 0, len(data))
-	seen := make(map[string]int, len(data))
-	for _, row := range data {
-		key := sqlConflictKey(row, conflictCols)
-		if idx, ok := seen[key]; ok {
-			switch cfg.ConflictStrategy {
-			case ConflictIgnore:
-				stats.DeduplicatedRows++
-				continue
-			case ConflictReplace:
-				rows[idx] = cloneSQLRow(row)
-				stats.DeduplicatedRows++
-			case ConflictUpdate:
-				for _, col := range schema.Columns() {
-					if val, exists := row[col]; exists {
-						rows[idx][col] = val
-					}
-				}
-				stats.MergedRows++
-			}
-			continue
-		}
-		seen[key] = len(rows)
-		rows = append(rows, cloneSQLRow(row))
-	}
-	stats.OutputRows = len(rows)
+	rows, stats, _ := deduplicateSQLRowsWithStatsCtx(context.Background(), schema, data)
 	return rows, stats
 }
 
-func cloneSQLRow(row map[string]any) map[string]any {
-	cloned := make(map[string]any, len(row))
-	for k, v := range row {
-		cloned[k] = v
+func deduplicateSQLRowsWithStatsCtx(ctx context.Context, schema *SQLSchema, data []map[string]any) ([]map[string]any, SQLDedupStats, error) {
+	result, err := newSQLCoalescer(schema).Coalesce(ctx, schema, data)
+	if err != nil {
+		stats := SQLDedupStats{InputRows: len(data), OutputRows: len(data)}
+		return data, stats, err
 	}
-	return cloned
-}
-
-func sqlConflictKey(row map[string]any, conflictCols []string) string {
-	var b strings.Builder
-	for _, col := range conflictCols {
-		val, exists := row[col]
-		fmt.Fprintf(&b, "%s=%t:%T:%#v\x00", col, exists, val, val)
-	}
-	return b.String()
+	return result.Batch, SQLDedupStats{
+		InputRows:        result.InputItems,
+		OutputRows:       result.OutputItems,
+		DeduplicatedRows: result.DeduplicatedItems,
+		MergedRows:       result.MergedItems,
+	}, nil
 }
 
 func sqlConflictColumns(schema *SQLSchema) []string {

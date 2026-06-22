@@ -209,8 +209,39 @@ func (r *Request) Set(name string, value any) *Request
 注意：
 
 - 当前公开通用 setter 是 `Set(...)`，不是 `SetAny(...)`。
+- `Columns()` 返回当前列数据的副本；修改返回值不会影响 request 内部状态。
 - 基础整数类型优先使用对应的 `SetInt...` / `SetUint...` 便捷方法，减少调用侧手动转换。
 - `Validate()` 会验证 schema 声明的列是否全部赋值。
+
+## Batch 与 Coalescer
+
+通用批数据类型：
+
+```go
+type Record = map[string]any
+type Batch = []Record
+```
+
+批内合并接口：
+
+```go
+type CoalesceStrategy string
+
+const (
+	CoalesceDisabled           CoalesceStrategy = "disabled"
+	CoalesceKeepFirst          CoalesceStrategy = "keep_first"
+	CoalesceKeepLast           CoalesceStrategy = "keep_last"
+	CoalesceMergePresentFields CoalesceStrategy = "merge_present_fields"
+)
+
+type Coalescer interface {
+	Coalesce(ctx context.Context, schema SchemaInterface, batch Batch) (CoalesceResult, error)
+}
+
+func NewKeyCoalescer(strategy CoalesceStrategy, keyColumns ...string) *KeyCoalescer
+```
+
+`PipelineConfig.Coalescer` 可用于 Redis、HTTP、MongoDB 等非 SQL 后端的同批次同 key 合并。SQL 默认仍由 `SQLOperationConfig` 的 `ConflictColumns` 控制，保留 `ConflictIgnore` / `ConflictUpdate` / `ConflictReplace` 的数据库语义和 dry-run 统计。
 
 ## 执行器
 
@@ -228,6 +259,7 @@ func NewRedisThrottledBatchExecutorWithDriver(client *redis.Client, driver Redis
 func (e *ThrottledBatchExecutor) WithRetryConfig(cfg RetryConfig) *ThrottledBatchExecutor
 func (e *ThrottledBatchExecutor) WithConcurrencyLimit(limit int) *ThrottledBatchExecutor
 func (e *ThrottledBatchExecutor) WithMetricsReporter(reporter MetricsReporter) *ThrottledBatchExecutor
+func (e *ThrottledBatchExecutor) WithCoalescer(coalescer Coalescer) *ThrottledBatchExecutor
 func (e *ThrottledBatchExecutor) MetricsReporter() MetricsReporter
 func (e *ThrottledBatchExecutor) WithObserver(observer Observer) *ThrottledBatchExecutor
 func (e *ThrottledBatchExecutor) WithObservability(config ObservabilityConfig) *ThrottledBatchExecutor

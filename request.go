@@ -25,7 +25,11 @@ func (r *Request) Schema() SchemaInterface {
 
 // Columns 获取所有列数据
 func (r *Request) Columns() map[string]any {
-	return r.columns
+	columns := make(map[string]any, len(r.columns))
+	for k, v := range r.columns {
+		columns[k] = v
+	}
+	return columns
 }
 
 // GetOrderedValues 按照 schema 中定义的列顺序返回值

@@ -81,17 +81,21 @@ func (r *sqlMetricsRecorder) DecInflight()               {}
 func (r *sqlMetricsRecorder) ObserveSQLGenerated(table string, inputRows, outputRows, argsCount int) {
 	r.generated++
 }
+
 func (r *sqlMetricsRecorder) ObserveSQLDeduplicated(table string, strategy batchflow.ConflictStrategy, deduplicatedRows, mergedRows int) {
 	r.dedup += deduplicatedRows + mergedRows
 }
+
 func (r *sqlMetricsRecorder) IncSQLError(table string, stage batchflow.SQLStage, reason string) {
 	r.errors++
 	r.lastStage = stage
 	r.lastSQLReason = reason
 }
+
 func (r *sqlMetricsRecorder) ObserveOperationGenerated(preview batchflow.OperationPreview) {
 	r.operationGenerated++
 }
+
 func (r *sqlMetricsRecorder) IncOperationError(schema string, backend string, stage string, reason string) {
 	r.operationErrors++
 	r.lastOpReason = reason

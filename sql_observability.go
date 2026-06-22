@@ -2,6 +2,7 @@ package batchflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -80,10 +81,10 @@ type SQLMetricsReporter interface {
 // GenerateSQLPreview builds the same final SQL and args as SQLBatchProcessor without executing it.
 func GenerateSQLPreview(ctx context.Context, driver SQLDriver, schema *SQLSchema, data []map[string]any) (SQLPreview, error) {
 	if driver == nil {
-		return SQLPreview{}, &SQLError{Stage: SQLStageValidate, BatchSize: len(data), Cause: fmt.Errorf("nil SQL driver")}
+		return SQLPreview{}, &SQLError{Stage: SQLStageValidate, BatchSize: len(data), Cause: errors.New("nil SQL driver")}
 	}
 	if schema == nil {
-		return SQLPreview{}, &SQLError{Stage: SQLStageValidate, BatchSize: len(data), Cause: fmt.Errorf("nil SQL schema")}
+		return SQLPreview{}, &SQLError{Stage: SQLStageValidate, BatchSize: len(data), Cause: errors.New("nil SQL schema")}
 	}
 
 	stats := analyzeSQLDedup(schema, data)

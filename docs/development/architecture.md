@@ -9,8 +9,9 @@ flowchart TB
   A[Application] --> B["BatchFlow<br/><span style='font-size:12px;color:#888'>用户API层</span>"]
   B --> C["gopipeline<br/><span style='font-size:12px;color:#888'>异步批量处理</span>"]
   C --> D["BatchExecutor<br/><span style='font-size:12px;color:#888'>统一执行接口</span>"]
-  D --> E[SQL数据库]
-  D --> F[NoSQL数据库]
+  D --> E["Coalescer<br/><span style='font-size:12px;color:#888'>可选批内合并</span>"]
+  E --> F[SQL数据库]
+  E --> G[NoSQL数据库]
 ```
 
 ## 🎯 核心设计原则
@@ -22,6 +23,7 @@ flowchart TB
 
 ### 2. 可选的抽象层
 - **BatchProcessor** 不是必须的，用于复用“生成操作 + 执行操作 + retry/metrics/observer”的执行控制逻辑
+- **Coalescer** 是可选批内合并层，用于同一 flush 内相同业务 key 的 keep-first、keep-last 或字段级 merge
 - SQL 和 Redis 默认使用 `ThrottledBatchExecutor + BatchProcessor`
 - 其他 NoSQL、HTTP、消息推送可以直接实现 `BatchExecutor`，也可以实现 `BatchProcessor` 后复用通用执行器
 - 测试环境使用 MockExecutor 直接实现
@@ -29,6 +31,7 @@ flowchart TB
 ### 3. 职责分离
 - **BatchFlow**: 用户API和管道管理
 - **BatchExecutor**: 执行控制和指标收集
+- **Coalescer**: 可选批内去重/合并，SQL 默认由 conflict key 策略驱动，非 SQL 由业务显式配置
 - **BatchProcessor**: 后端操作生成和执行逻辑（可选）
 - **SQLDriver**: 数据库特定的SQL生成
 
@@ -57,6 +60,7 @@ ThrottledBatchExecutor.ExecuteBatch()
     ├── 可选并发限流（WithConcurrencyLimit）
     ├── 重试与退避（WithRetryConfig）
     ├── 指标、结构化事件和错误分类
+    ├── SQL conflict-key 批内合并（SQLDriver 生成前）
     └── 调用 BatchProcessor
         ↓
 SQLBatchProcessor.GenerateOperations()
@@ -95,6 +99,7 @@ BatchFlow.Submit()
 gopipeline (异步批量处理)
     ↓
 ThrottledBatchExecutor 或 CustomExecutor
+    ├── 可选 Coalescer: keep-first / keep-last / merge-present-fields
     ├── 使用 ThrottledBatchExecutor: 复用限流、重试、metrics、observer
     └── 直接实现 BatchExecutor: 完全自定义执行控制
         ↓

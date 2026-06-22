@@ -6,15 +6,25 @@
 
 ```go
 type PipelineConfig struct {
-	BufferSize       uint32
-	FlushSize        uint32
-	FlushInterval    time.Duration
-	Retry            RetryConfig
-	Timeout          time.Duration
-	MetricsReporter  MetricsReporter
-	ConcurrencyLimit int
+	BufferSize               uint32
+	FlushSize                uint32
+	FlushInterval            time.Duration
+	MaxConcurrentFlushes     uint32
+	DrainOnCancel            bool
+	DrainGracePeriod         time.Duration
+	FinalFlushOnCloseTimeout time.Duration
+	Retry                    RetryConfig
+	Timeout                  time.Duration
+	MetricsReporter          MetricsReporter
+	Observability            ObservabilityConfig
+	ConcurrencyLimit         int
+	Coalescer                Coalescer
 }
 ```
+
+`DefaultPipelineConfig()` 提供生产可用默认值。`NewBatchFlowWithConfig(ctx, BatchFlowConfig{...})` 会执行配置校验；旧构造函数仍保持兼容。
+
+`Coalescer` 用于非 SQL 后端的批内同 key 合并，例如 Redis、HTTP、MongoDB 或自定义 API。SQL 默认仍使用 `SQLOperationConfig.ConflictColumns` 做 conflict-key 合并，避免丢失 SQL dry-run 里的 dedup 统计。
 
 ## SQLOperationConfig
 

@@ -3,6 +3,7 @@ package custom_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/rushairer/batchflow"
 )
@@ -37,7 +38,7 @@ func (p documentBulkProcessor) GenerateOperationPreview(ctx context.Context, sch
 		InputItems:  len(data),
 		OutputItems: len(ops),
 		ArgCount:    len(ops),
-		Fingerprint: batchflow.OperationFingerprint("document", "bulk_write", schema.Name(), fmt.Sprint(len(ops))),
+		Fingerprint: batchflow.OperationFingerprint("document", "bulk_write", schema.Name(), strconv.Itoa(len(ops))),
 		Attributes: map[string]any{
 			"collection":   schema.Name(),
 			"column_count": len(schema.Columns()),

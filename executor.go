@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -55,6 +56,7 @@ type ThrottledBatchExecutor struct {
 	processor       BatchProcessor  // 具体的批量处理逻辑
 	metricsReporter MetricsReporter // 性能指标报告器
 	observer        Observer
+	coalescer       Coalescer
 	semaphore       chan struct{} // 可选信号量，用于限制 ExecuteBatch 并发
 
 	// 重试配置（默认关闭）
@@ -140,6 +142,21 @@ func (e *ThrottledBatchExecutor) ExecuteBatch(ctx context.Context, schema Schema
 	if len(data) == 0 {
 		return nil
 	}
+	if e.coalescer != nil {
+		result, err := e.coalescer.Coalesce(ctx, schema, data)
+		if err != nil {
+			return batchErrorFromError(BatchStageValidate, OperationPreview{
+				Backend:    BackendCustom,
+				Operation:  OperationCustom,
+				Schema:     schema.Name(),
+				InputItems: len(data),
+			}, len(data), err)
+		}
+		data = result.Batch
+		if len(data) == 0 {
+			return nil
+		}
+	}
 
 	// 可选并发限流：当设置了信号量时，进入前需占用一个令牌
 	if e.semaphore != nil {
@@ -218,6 +235,11 @@ func (e *ThrottledBatchExecutor) Observer() Observer { return e.observer }
 
 func (e *ThrottledBatchExecutor) WithObservability(config ObservabilityConfig) *ThrottledBatchExecutor {
 	e.observer = config.observer()
+	return e
+}
+
+func (e *ThrottledBatchExecutor) WithCoalescer(coalescer Coalescer) *ThrottledBatchExecutor {
+	e.coalescer = coalescer
 	return e
 }
 
@@ -318,7 +340,7 @@ func (e *ThrottledBatchExecutor) generateOperations(ctx context.Context, schema 
 		InputItems:  len(data),
 		OutputItems: len(ops),
 		ArgCount:    len(ops),
-		Fingerprint: OperationFingerprint(BackendCustom, schema.Name(), fmt.Sprint(len(ops))),
+		Fingerprint: OperationFingerprint(BackendCustom, schema.Name(), strconv.Itoa(len(ops))),
 	}
 	return ops, preview, false, err
 }
@@ -335,7 +357,7 @@ func (e *ThrottledBatchExecutor) reportOperationGenerated(table string, operatio
 				InputItems:  len(data),
 				OutputItems: len(operations),
 				ArgCount:    len(operations),
-				Fingerprint: OperationFingerprint(BackendCustom, table, fmt.Sprint(len(operations))),
+				Fingerprint: OperationFingerprint(BackendCustom, table, strconv.Itoa(len(operations))),
 			})
 		}
 	}

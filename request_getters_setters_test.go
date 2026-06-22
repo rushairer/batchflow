@@ -101,3 +101,20 @@ func TestRequest_ExtendedIntegerSetters(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestColumnsReturnsCopy(t *testing.T) {
+	s := batchflow.NewSchema("t", "id", "name")
+	r := batchflow.NewRequest(s).SetInt("id", 1).SetString("name", "alice")
+
+	cols := r.Columns()
+	cols["name"] = "mutated"
+	delete(cols, "id")
+
+	got := r.Columns()
+	if got["name"] != "alice" {
+		t.Fatalf("Columns exposed mutable state: name=%v", got["name"])
+	}
+	if got["id"] != 1 {
+		t.Fatalf("Columns exposed mutable state: id=%v", got["id"])
+	}
+}

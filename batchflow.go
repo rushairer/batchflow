@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +48,16 @@ type queuedRequest struct {
 // 这是最底层的构造函数，接受任何实现了BatchExecutor接口的执行器
 // 通常不直接使用，而是通过具体数据库的工厂方法创建
 func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushInterval time.Duration, executor BatchExecutor) *BatchFlow {
+	return newBatchFlow(ctx, PipelineConfig{
+		BufferSize:       buffSize,
+		FlushSize:        flushSize,
+		FlushInterval:    flushInterval,
+		DrainOnCancel:    true,
+		DrainGracePeriod: 2 * time.Second,
+	}, executor)
+}
+
+func newBatchFlow(ctx context.Context, config PipelineConfig, executor BatchExecutor) *BatchFlow {
 	// 确保 BatchFlow 始终拥有可用 reporter，但不误覆盖自定义执行器的已有配置
 	var reporter MetricsReporter
 	// 说明：
@@ -153,13 +164,7 @@ func NewBatchFlow(ctx context.Context, buffSize uint32, flushSize uint32, flushI
 	}
 
 	pipeline := gopipeline.NewStandardPipeline(
-		gopipeline.PipelineConfig{
-			BufferSize:       buffSize,
-			FlushSize:        flushSize,
-			FlushInterval:    flushInterval,
-			DrainOnCancel:    true,
-			DrainGracePeriod: 2000 * time.Millisecond,
-		},
+		config.goPipelineConfig(),
 		flushFunc,
 	)
 
@@ -257,9 +262,13 @@ func (b *BatchFlow) Done() <-chan struct{} {
 
 // PipelineConfig 管道配置
 type PipelineConfig struct {
-	BufferSize    uint32
-	FlushSize     uint32
-	FlushInterval time.Duration
+	BufferSize               uint32
+	FlushSize                uint32
+	FlushInterval            time.Duration
+	MaxConcurrentFlushes     uint32
+	DrainOnCancel            bool
+	DrainGracePeriod         time.Duration
+	FinalFlushOnCloseTimeout time.Duration
 
 	// 可选重试配置（零值=关闭，向后兼容）
 	Retry RetryConfig
@@ -275,6 +284,119 @@ type PipelineConfig struct {
 
 	// 可选并发限制（零值=无限制，向后兼容）
 	ConcurrencyLimit int
+
+	// 可选批内合并/去重策略。SQL 默认仍使用 SQLOperationConfig 的 conflict-key 合并。
+	Coalescer Coalescer
+}
+
+// BatchFlowConfig is the v2 constructor config for a fully assembled BatchFlow.
+type BatchFlowConfig struct {
+	Pipeline PipelineConfig
+	Executor BatchExecutor
+}
+
+type ConfigError struct {
+	Field string
+	Cause error
+}
+
+func (e *ConfigError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("invalid config %s: %v", e.Field, e.Cause)
+}
+
+func (e *ConfigError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func DefaultPipelineConfig() PipelineConfig {
+	return PipelineConfig{
+		BufferSize:       1000,
+		FlushSize:        100,
+		FlushInterval:    100 * time.Millisecond,
+		DrainOnCancel:    true,
+		DrainGracePeriod: 2 * time.Second,
+	}
+}
+
+func DefaultBatchFlowConfig(executor BatchExecutor) BatchFlowConfig {
+	return BatchFlowConfig{
+		Pipeline: DefaultPipelineConfig(),
+		Executor: executor,
+	}
+}
+
+func (c PipelineConfig) withDefaults() PipelineConfig {
+	defaults := DefaultPipelineConfig()
+	if c.BufferSize == 0 {
+		c.BufferSize = defaults.BufferSize
+	}
+	if c.FlushSize == 0 {
+		c.FlushSize = defaults.FlushSize
+	}
+	if c.FlushInterval == 0 {
+		c.FlushInterval = defaults.FlushInterval
+	}
+	if c.DrainGracePeriod == 0 {
+		c.DrainGracePeriod = defaults.DrainGracePeriod
+	}
+	return c
+}
+
+func (c PipelineConfig) Validate() error {
+	if c.ConcurrencyLimit < 0 {
+		return &ConfigError{Field: "ConcurrencyLimit", Cause: errors.New("must be >= 0")}
+	}
+	if c.Retry.MaxAttempts < 0 {
+		return &ConfigError{Field: "Retry.MaxAttempts", Cause: errors.New("must be >= 0")}
+	}
+	if c.Retry.BackoffBase < 0 {
+		return &ConfigError{Field: "Retry.BackoffBase", Cause: errors.New("must be >= 0")}
+	}
+	if c.Retry.MaxBackoff < 0 {
+		return &ConfigError{Field: "Retry.MaxBackoff", Cause: errors.New("must be >= 0")}
+	}
+	if c.Timeout < 0 {
+		return &ConfigError{Field: "Timeout", Cause: errors.New("must be >= 0")}
+	}
+	if c.FlushInterval < 0 {
+		return &ConfigError{Field: "FlushInterval", Cause: errors.New("must be >= 0")}
+	}
+	if c.DrainGracePeriod < 0 {
+		return &ConfigError{Field: "DrainGracePeriod", Cause: errors.New("must be >= 0")}
+	}
+	if c.FinalFlushOnCloseTimeout < 0 {
+		return &ConfigError{Field: "FinalFlushOnCloseTimeout", Cause: errors.New("must be >= 0")}
+	}
+	return nil
+}
+
+func (c PipelineConfig) goPipelineConfig() gopipeline.PipelineConfig {
+	c = c.withDefaults()
+	return gopipeline.PipelineConfig{
+		BufferSize:               c.BufferSize,
+		FlushSize:                c.FlushSize,
+		FlushInterval:            c.FlushInterval,
+		MaxConcurrentFlushes:     c.MaxConcurrentFlushes,
+		DrainOnCancel:            c.DrainOnCancel,
+		DrainGracePeriod:         c.DrainGracePeriod,
+		FinalFlushOnCloseTimeout: c.FinalFlushOnCloseTimeout,
+	}
+}
+
+func NewBatchFlowWithConfig(ctx context.Context, config BatchFlowConfig) (*BatchFlow, error) {
+	if config.Executor == nil {
+		return nil, &ConfigError{Field: "Executor", Cause: errors.New("must not be nil")}
+	}
+	if err := config.Pipeline.Validate(); err != nil {
+		return nil, err
+	}
+	return newBatchFlow(ctx, config.Pipeline.withDefaults(), config.Executor), nil
 }
 
 // NewSQLBatchFlow 创建SQL BatchFlow实例（使用自定义Driver）
@@ -296,7 +418,10 @@ func NewSQLBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineC
 	if config.ConcurrencyLimit > 0 {
 		executor.WithConcurrencyLimit(config.ConcurrencyLimit)
 	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
+	if config.Coalescer != nil {
+		executor.WithCoalescer(config.Coalescer)
+	}
+	return newBatchFlow(ctx, config, executor)
 }
 
 // NewMySQLBatchFlow 创建MySQL BatchFlow实例（使用默认Driver）
@@ -345,7 +470,10 @@ func NewRedisBatchFlowWithDriver(ctx context.Context, db *redisV9.Client, config
 	if config.ConcurrencyLimit > 0 {
 		executor.WithConcurrencyLimit(config.ConcurrencyLimit)
 	}
-	return NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, executor)
+	if config.Coalescer != nil {
+		executor.WithCoalescer(config.Coalescer)
+	}
+	return newBatchFlow(ctx, config, executor)
 }
 
 // NewBatchFlowWithMock 使用模拟执行器创建 BatchFlow 实例（用于测试）
@@ -353,7 +481,7 @@ func NewRedisBatchFlowWithDriver(ctx context.Context, db *redisV9.Client, config
 // 适用于单元测试，不依赖真实数据库连接
 func NewBatchFlowWithMock(ctx context.Context, config PipelineConfig) (*BatchFlow, *MockExecutor) {
 	mockExecutor := NewMockExecutor()
-	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
+	batchFlow := newBatchFlow(ctx, config, mockExecutor)
 	return batchFlow, mockExecutor
 }
 
@@ -362,7 +490,7 @@ func NewBatchFlowWithMock(ctx context.Context, config PipelineConfig) (*BatchFlo
 // 适用于测试自定义SQLDriver的SQL生成逻辑
 func NewBatchFlowWithMockDriver(ctx context.Context, config PipelineConfig, sqlDriver SQLDriver) (*BatchFlow, *MockExecutor) {
 	mockExecutor := NewMockExecutorWithDriver(sqlDriver)
-	batchFlow := NewBatchFlow(ctx, config.BufferSize, config.FlushSize, config.FlushInterval, mockExecutor)
+	batchFlow := newBatchFlow(ctx, config, mockExecutor)
 	return batchFlow, mockExecutor
 }
 

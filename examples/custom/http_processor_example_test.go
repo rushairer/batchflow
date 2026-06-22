@@ -3,6 +3,7 @@ package custom_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/rushairer/batchflow"
 )
@@ -39,7 +40,7 @@ func (p httpBatchProcessor) GenerateOperationPreview(ctx context.Context, schema
 		InputItems:  len(data),
 		OutputItems: len(ops),
 		ArgCount:    len(ops),
-		Fingerprint: batchflow.OperationFingerprint("http", "post", schema.Name(), fmt.Sprint(len(ops))),
+		Fingerprint: batchflow.OperationFingerprint("http", "post", schema.Name(), strconv.Itoa(len(ops))),
 		Attributes: map[string]any{
 			"route":        "/v1/events",
 			"column_count": len(schema.Columns()),
