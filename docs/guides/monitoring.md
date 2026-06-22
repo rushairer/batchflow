@@ -59,6 +59,12 @@ defer flow.Close()
 - `inflight_batches`
 - `errors_total`
 
+### Operation Diagnostics
+
+- `operation_errors_total`
+- `operation_generated_items`
+- `operation_generated_args`
+
 ### SQL Diagnostics
 
 - `sql_errors_total`
@@ -91,6 +97,25 @@ defer flow.Close()
 - `invalid_schema`
 - `missing_column`
 - `empty_schema_name`
+
+### `operation_errors_total`
+
+表示 backend-neutral operation 生成或执行错误，适用于 SQL、Redis、自定义 processor：
+
+- `backend`：`sql`、`redis`、`custom` 或自定义 backend。
+- `stage`：`validate`、`generate`、`execute`、`retry`、`final`。
+- `reason`：低基数错误分类，如 `timeout`、`connection`、`duplicate_key`、`other`。
+- `table`：仅在 `Options.IncludeTable=true` 时启用；对非 SQL 场景表示 schema 名。
+
+### `operation_generated_items`
+
+记录 operation 生成前后的 item 数：
+
+- `kind="input"`：进入当前 batch 的原始数据量。
+- `kind="output"`：实际生成的后端操作数量。
+- `backend` / `operation`：用于区分 SQL upsert、Redis command、自定义 HTTP post 等。
+
+这些指标是通用诊断入口。SQL 专用指标保留，用于查看 conflict key 去重等 SQL 细节。
 
 ### `sql_errors_total`
 
@@ -143,6 +168,14 @@ histogram_quantile(0.99, sum by (le, instance_id, status) (rate(batchflow_execut
 ```
 
 ```promql
+sum(rate(batchflow_operation_errors_total[5m])) by (instance_id, backend, stage, reason)
+```
+
+```promql
+histogram_quantile(0.95, sum by (le, instance_id, backend, operation, kind) (rate(batchflow_operation_generated_items_bucket[5m])))
+```
+
+```promql
 sum(rate(batchflow_sql_errors_total[5m])) by (instance_id, stage, reason)
 ```
 
@@ -177,6 +210,8 @@ histogram_quantile(0.95, sum by (le, instance_id) (rate(batchflow_schema_groups_
 - `execute_duration_seconds`
 - `batch_size`
 - `errors_total`
+- `operation_errors_total`
+- `operation_generated_items`
 - `sql_errors_total`
 - `sql_deduplicated_rows_total`
 - `inflight_batches`
@@ -186,6 +221,7 @@ histogram_quantile(0.95, sum by (le, instance_id) (rate(batchflow_schema_groups_
 - 不要把 `batch_size` 当吞吐总量指标；它是单次 schema 执行批大小分布。
 - 不要把 `pipeline_dequeue_latency_seconds` 理解成“网络延迟”；它反映的是内部排队等待。
 - 不要把 `Close()` 省略掉，否则最后一批数据和对应指标都可能没被完整 flush。
+- 不要把原始 SQL、Redis key、HTTP body、用户标识作为 Prometheus label；需要定位时使用 fingerprint 和结构化日志。
 
 继续阅读：
 

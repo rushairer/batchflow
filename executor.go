@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -55,7 +56,8 @@ type ConcurrencyCapable[T any] interface {
 type ThrottledBatchExecutor struct {
 	processor       BatchProcessor  // 具体的批量处理逻辑
 	metricsReporter MetricsReporter // 性能指标报告器
-	semaphore       chan struct{}   // 可选信号量，用于限制 ExecuteBatch 并发
+	observer        Observer
+	semaphore       chan struct{} // 可选信号量，用于限制 ExecuteBatch 并发
 
 	// 重试配置（默认关闭）
 	retryEnabled     bool
@@ -191,22 +193,74 @@ RETRY:
 	for attempt := 1; attempt <= attempts; attempt++ {
 		// 生成与执行（一次尝试）
 		var operations Operations
-		var preview SQLPreview
+		var preview OperationPreview
 		var hasPreview bool
+		attemptStart := time.Now()
 		operations, preview, hasPreview, err = e.generateOperations(ctx, schema, data)
 		if err != nil {
-			e.reportSQLError(schema.Name(), SQLStageGenerate, err)
+			err = batchErrorFromError(BatchStageGenerate, preview, len(data), err)
+			e.reportOperationError(schema.Name(), BatchStageGenerate, err)
+			e.observeBatchEvent(ctx, BatchEvent{
+				Stage:       BatchStageGenerate,
+				Status:      "fail",
+				Attempt:     attempt,
+				BatchSize:   len(data),
+				Duration:    time.Since(attemptStart),
+				Err:         err,
+				Reason:      defaultOperationErrorReason(err),
+				Backend:     preview.Backend,
+				Operation:   preview.Operation,
+				Schema:      schema.Name(),
+				InputItems:  preview.InputItems,
+				OutputItems: preview.OutputItems,
+				ArgCount:    preview.ArgCount,
+				Fingerprint: preview.Fingerprint,
+				Attributes:  cloneAttributes(preview.Attributes),
+			})
 		}
-		e.reportSQLGenerated(schema.Name(), operations, data, preview, hasPreview)
+		e.reportOperationGenerated(schema.Name(), operations, data, preview, hasPreview)
 		if err == nil {
 			err = e.processor.ExecuteOperations(ctx, operations)
 			if err != nil {
-				e.reportSQLError(schema.Name(), SQLStageExecute, err)
+				err = batchErrorFromError(BatchStageExecute, preview, len(data), err)
+				e.reportOperationError(schema.Name(), BatchStageExecute, err)
+				e.observeBatchEvent(ctx, BatchEvent{
+					Stage:       BatchStageExecute,
+					Status:      "fail",
+					Attempt:     attempt,
+					BatchSize:   len(data),
+					Duration:    time.Since(attemptStart),
+					Err:         err,
+					Reason:      defaultOperationErrorReason(err),
+					Backend:     preview.Backend,
+					Operation:   preview.Operation,
+					Schema:      schema.Name(),
+					InputItems:  preview.InputItems,
+					OutputItems: preview.OutputItems,
+					ArgCount:    preview.ArgCount,
+					Fingerprint: preview.Fingerprint,
+					Attributes:  cloneAttributes(preview.Attributes),
+				})
 			}
 		}
 
 		if err == nil {
 			status = "success"
+			e.observeBatchEvent(ctx, BatchEvent{
+				Stage:       BatchStageExecute,
+				Status:      "success",
+				Attempt:     attempt,
+				BatchSize:   len(data),
+				Duration:    time.Since(attemptStart),
+				Backend:     preview.Backend,
+				Operation:   preview.Operation,
+				Schema:      schema.Name(),
+				InputItems:  preview.InputItems,
+				OutputItems: preview.OutputItems,
+				ArgCount:    preview.ArgCount,
+				Fingerprint: preview.Fingerprint,
+				Attributes:  cloneAttributes(preview.Attributes),
+			})
 			break
 		}
 
@@ -220,6 +274,23 @@ RETRY:
 			if e.metricsReporter != nil {
 				e.metricsReporter.IncError(schema.Name(), "final:"+reason)
 			}
+			e.observeBatchEvent(ctx, BatchEvent{
+				Stage:       BatchStageFinal,
+				Status:      "fail",
+				Attempt:     attempt,
+				BatchSize:   len(data),
+				Duration:    time.Since(startTime),
+				Err:         err,
+				Reason:      reason,
+				Backend:     preview.Backend,
+				Operation:   preview.Operation,
+				Schema:      schema.Name(),
+				InputItems:  preview.InputItems,
+				OutputItems: preview.OutputItems,
+				ArgCount:    preview.ArgCount,
+				Fingerprint: preview.Fingerprint,
+				Attributes:  cloneAttributes(preview.Attributes),
+			})
 			break
 		}
 
@@ -227,6 +298,23 @@ RETRY:
 		if e.metricsReporter != nil {
 			e.metricsReporter.IncError(schema.Name(), "retry:"+reason)
 		}
+		e.observeBatchEvent(ctx, BatchEvent{
+			Stage:       BatchStageRetry,
+			Status:      "retry",
+			Attempt:     attempt,
+			BatchSize:   len(data),
+			Duration:    time.Since(attemptStart),
+			Err:         err,
+			Reason:      reason,
+			Backend:     preview.Backend,
+			Operation:   preview.Operation,
+			Schema:      schema.Name(),
+			InputItems:  preview.InputItems,
+			OutputItems: preview.OutputItems,
+			ArgCount:    preview.ArgCount,
+			Fingerprint: preview.Fingerprint,
+			Attributes:  cloneAttributes(preview.Attributes),
+		})
 
 		// 指数退避 + 抖动
 		backoff := e.retryBackoffBase
@@ -280,29 +368,58 @@ func (e *ThrottledBatchExecutor) WithMetricsReporter(metricsReporter MetricsRepo
 // MetricsReporter 获取指标报告器
 func (e *ThrottledBatchExecutor) MetricsReporter() MetricsReporter { return e.metricsReporter }
 
-func (e *ThrottledBatchExecutor) generateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, SQLPreview, bool, error) {
-	if p, ok := e.processor.(interface {
-		GenerateSQLPreview(context.Context, *SQLSchema, []map[string]any) (SQLPreview, error)
-	}); ok {
-		sqlSchema, ok := schema.(*SQLSchema)
-		if !ok {
-			err := &SQLError{Stage: SQLStageValidate, Table: schema.Name(), BatchSize: len(data), Cause: errors.New("schema is not a SQLSchema")}
-			return nil, SQLPreview{}, false, err
-		}
-		preview, err := p.GenerateSQLPreview(ctx, sqlSchema, data)
-		if err != nil {
-			return nil, preview, preview.SQL != "", err
-		}
-		ops := make(Operations, 0, 1+len(preview.Args))
-		ops = append(ops, preview.SQL)
-		ops = append(ops, preview.Args...)
-		return ops, preview, true, nil
-	}
-	ops, err := e.processor.GenerateOperations(ctx, schema, data)
-	return ops, SQLPreview{}, false, err
+func (e *ThrottledBatchExecutor) WithObserver(observer Observer) *ThrottledBatchExecutor {
+	e.observer = observer
+	return e
 }
 
-func (e *ThrottledBatchExecutor) reportSQLGenerated(table string, operations Operations, data []map[string]any, preview SQLPreview, hasPreview bool) {
+func (e *ThrottledBatchExecutor) Observer() Observer { return e.observer }
+
+func (e *ThrottledBatchExecutor) WithObservability(config ObservabilityConfig) *ThrottledBatchExecutor {
+	e.observer = config.observer()
+	return e
+}
+
+func (e *ThrottledBatchExecutor) generateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, OperationPreview, bool, error) {
+	if p, ok := e.processor.(OperationPreviewer); ok {
+		ops, preview, err := p.GenerateOperationPreview(ctx, schema, data)
+		if preview.Schema == "" {
+			preview.Schema = schema.Name()
+		}
+		if preview.InputItems == 0 {
+			preview.InputItems = len(data)
+		}
+		return ops, preview, true, err
+	}
+	ops, err := e.processor.GenerateOperations(ctx, schema, data)
+	preview := OperationPreview{
+		Backend:     BackendCustom,
+		Operation:   OperationCustom,
+		Schema:      schema.Name(),
+		InputItems:  len(data),
+		OutputItems: len(ops),
+		ArgCount:    len(ops),
+		Fingerprint: OperationFingerprint(BackendCustom, schema.Name(), fmt.Sprint(len(ops))),
+	}
+	return ops, preview, false, err
+}
+
+func (e *ThrottledBatchExecutor) reportOperationGenerated(table string, operations Operations, data []map[string]any, preview OperationPreview, hasPreview bool) {
+	if reporter, ok := e.metricsReporter.(OperationMetricsReporter); ok {
+		if hasPreview {
+			reporter.ObserveOperationGenerated(preview)
+		} else {
+			reporter.ObserveOperationGenerated(OperationPreview{
+				Backend:     BackendCustom,
+				Operation:   OperationCustom,
+				Schema:      table,
+				InputItems:  len(data),
+				OutputItems: len(operations),
+				ArgCount:    len(operations),
+				Fingerprint: OperationFingerprint(BackendCustom, table, fmt.Sprint(len(operations))),
+			})
+		}
+	}
 	reporter, ok := e.metricsReporter.(SQLMetricsReporter)
 	if !ok || len(operations) == 0 {
 		return
@@ -311,9 +428,9 @@ func (e *ThrottledBatchExecutor) reportSQLGenerated(table string, operations Ope
 	if !ok {
 		return
 	}
-	if hasPreview {
-		reporter.ObserveSQLGenerated(table, preview.DedupStats.InputRows, preview.DedupStats.OutputRows, preview.ArgsCount)
-		reporter.ObserveSQLDeduplicated(table, preview.ConflictStrategy, preview.DedupStats.DeduplicatedRows, preview.DedupStats.MergedRows)
+	if sqlPreview, ok := sqlPreviewFromOperation(preview); ok {
+		reporter.ObserveSQLGenerated(table, sqlPreview.DedupStats.InputRows, sqlPreview.DedupStats.OutputRows, sqlPreview.ArgsCount)
+		reporter.ObserveSQLDeduplicated(table, sqlPreview.ConflictStrategy, sqlPreview.DedupStats.DeduplicatedRows, sqlPreview.DedupStats.MergedRows)
 		return
 	}
 	argsCount := len(sqlOperationArgs(operations))
@@ -321,25 +438,47 @@ func (e *ThrottledBatchExecutor) reportSQLGenerated(table string, operations Ope
 	_ = sqlText
 }
 
-func (e *ThrottledBatchExecutor) reportSQLError(table string, stage SQLStage, err error) {
-	reporter, ok := e.metricsReporter.(SQLMetricsReporter)
-	if !ok || err == nil {
+func (e *ThrottledBatchExecutor) reportOperationError(table, stage string, err error) {
+	if err == nil {
 		return
 	}
-	reason := "unknown"
-	var sqlErr *SQLError
-	if errors.As(err, &sqlErr) {
-		stage = sqlErr.Stage
-		reason = defaultSQLErrorReason(sqlErr.Cause)
-	} else {
-		reason = defaultSQLErrorReason(err)
+	reason := defaultOperationErrorReason(err)
+	if reporter, ok := e.metricsReporter.(OperationMetricsReporter); ok {
+		backend := ""
+		var batchErr *BatchError
+		if errors.As(err, &batchErr) {
+			backend = batchErr.Backend
+		}
+		reporter.IncOperationError(table, backend, stage, reason)
 	}
-	reporter.IncSQLError(table, stage, reason)
+	if reporter, ok := e.metricsReporter.(SQLMetricsReporter); ok {
+		sqlStage := SQLStage(stage)
+		var sqlErr *SQLError
+		if errors.As(err, &sqlErr) {
+			sqlStage = sqlErr.Stage
+			reason = defaultOperationErrorReason(sqlErr.Cause)
+		}
+		reporter.IncSQLError(table, sqlStage, reason)
+	}
 }
 
-func defaultSQLErrorReason(err error) string {
+func (e *ThrottledBatchExecutor) observeBatchEvent(ctx context.Context, event BatchEvent) {
+	if e.observer != nil {
+		e.observer.OnBatchEvent(ctx, event)
+	}
+}
+
+func defaultOperationErrorReason(err error) string {
 	if err == nil {
 		return "unknown"
+	}
+	var batchErr *BatchError
+	if errors.As(err, &batchErr) && batchErr.Cause != nil {
+		err = batchErr.Cause
+	}
+	var sqlErr *SQLError
+	if errors.As(err, &sqlErr) && sqlErr.Cause != nil {
+		err = sqlErr.Cause
 	}
 	if errors.Is(err, context.Canceled) {
 		return "context_canceled"
@@ -361,6 +500,49 @@ func defaultSQLErrorReason(err error) string {
 		return "syntax"
 	default:
 		return "other"
+	}
+}
+
+func sqlPreviewFromOperation(preview OperationPreview) (SQLPreview, bool) {
+	if preview.Backend != BackendSQL {
+		return SQLPreview{}, false
+	}
+	stats := SQLDedupStats{
+		InputRows:        preview.InputItems,
+		OutputRows:       preview.OutputItems,
+		DeduplicatedRows: intAttribute(preview.Attributes, "deduplicated_rows"),
+		MergedRows:       intAttribute(preview.Attributes, "merged_rows"),
+	}
+	return SQLPreview{
+		Table:            preview.Schema,
+		ArgsCount:        preview.ArgCount,
+		ConflictStrategy: conflictStrategyFromName(fmt.Sprint(preview.Attributes["conflict_strategy"])),
+		DedupStats:       stats,
+		Fingerprint:      preview.Fingerprint,
+	}, true
+}
+
+func conflictStrategyFromName(name string) ConflictStrategy {
+	switch name {
+	case "replace":
+		return ConflictReplace
+	case "update":
+		return ConflictUpdate
+	default:
+		return ConflictIgnore
+	}
+}
+
+func intAttribute(attrs map[string]any, key string) int {
+	switch v := attrs[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
 	}
 }
 

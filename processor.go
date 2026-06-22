@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -53,6 +54,22 @@ func (bp *SQLBatchProcessor) WithTimeout(timeout time.Duration) *SQLBatchProcess
 
 func (bp *SQLBatchProcessor) GenerateSQLPreview(ctx context.Context, schema *SQLSchema, data []map[string]any) (SQLPreview, error) {
 	return GenerateSQLPreview(ctx, bp.driver, schema, data)
+}
+
+func (bp *SQLBatchProcessor) GenerateOperationPreview(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, OperationPreview, error) {
+	s, ok := schema.(*SQLSchema)
+	if !ok {
+		err := &BatchError{Stage: BatchStageValidate, Backend: BackendSQL, Schema: schema.Name(), BatchSize: len(data), Cause: errors.New("schema is not a SQLSchema")}
+		return nil, OperationPreview{Backend: BackendSQL, Schema: schema.Name(), InputItems: len(data)}, err
+	}
+	preview, err := bp.GenerateSQLPreview(ctx, s, data)
+	if err != nil {
+		return nil, preview.OperationPreview(), err
+	}
+	operations := make(Operations, 0, 1+len(preview.Args))
+	operations = append(operations, preview.SQL)
+	operations = append(operations, preview.Args...)
+	return operations, preview.OperationPreview(), nil
 }
 
 func (bp *SQLBatchProcessor) GenerateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (operations Operations, err error) {
@@ -164,6 +181,35 @@ func (rp *RedisBatchProcessor) WithTimeout(timeout time.Duration) *RedisBatchPro
 	return rp
 }
 
+func (rp *RedisBatchProcessor) GenerateOperationPreview(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, OperationPreview, error) {
+	operations, err := rp.GenerateOperations(ctx, schema, data)
+	preview := OperationPreview{
+		Backend:     BackendRedis,
+		Operation:   OperationCommand,
+		Schema:      schema.Name(),
+		InputItems:  len(data),
+		OutputItems: len(operations),
+		ArgCount:    redisOperationArgCount(operations),
+		Fingerprint: redisOperationsFingerprint(schema, operations),
+		Attributes: map[string]any{
+			"commands": len(operations),
+			"columns":  len(schema.Columns()),
+		},
+	}
+	if err != nil {
+		return nil, preview, &BatchError{
+			Stage:       BatchStageGenerate,
+			Backend:     BackendRedis,
+			Schema:      schema.Name(),
+			BatchSize:   len(data),
+			Fingerprint: preview.Fingerprint,
+			Attributes:  cloneAttributes(preview.Attributes),
+			Cause:       err,
+		}
+	}
+	return operations, preview, nil
+}
+
 // GenerateOperations 执行批量操作
 func (rp *RedisBatchProcessor) GenerateOperations(ctx context.Context, schema SchemaInterface, data []map[string]any) (operations Operations, err error) {
 	s, ok := schema.(*Schema)
@@ -227,4 +273,24 @@ func (rp *RedisBatchProcessor) ExecuteOperations(ctx context.Context, operations
 	}
 
 	return err
+}
+
+func redisOperationArgCount(operations Operations) int {
+	count := 0
+	for _, operation := range operations {
+		if cmd, ok := operation.(RedisCmd); ok {
+			count += len(cmd)
+		}
+	}
+	return count
+}
+
+func redisOperationsFingerprint(schema SchemaInterface, operations Operations) string {
+	parts := []string{BackendRedis, schema.Name()}
+	for _, operation := range operations {
+		if cmd, ok := operation.(RedisCmd); ok && len(cmd) > 0 {
+			parts = append(parts, fmt.Sprint(cmd[0]))
+		}
+	}
+	return OperationFingerprint(parts...)
 }

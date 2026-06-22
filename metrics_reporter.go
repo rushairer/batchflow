@@ -66,3 +66,10 @@ type BatchFlowMetricsReporter interface {
 	// ObserveSchemaGroupsPerFlush 记录一次 flush 被拆成的 schema 组数。
 	ObserveSchemaGroupsPerFlush(n int)
 }
+
+// OperationMetricsReporter is a backend-neutral extension for generated operation diagnostics.
+// Implementations should keep labels low-cardinality and never use raw payloads as labels.
+type OperationMetricsReporter interface {
+	ObserveOperationGenerated(preview OperationPreview)
+	IncOperationError(schema string, backend string, stage string, reason string)
+}

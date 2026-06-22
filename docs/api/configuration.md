@@ -111,7 +111,36 @@ Retry: batchflow.RetryConfig{
 - 含义：可选指标上报器。
 - 使用方式：在 `PipelineConfig` 中直接传入。
 - 推荐：优先使用 `examples/metrics/prometheus` 中的官方示例实现。
-- SQL 场景：官方 Prometheus reporter 还实现了 `SQLMetricsReporter`，会额外上报 SQL 生成/执行错误、生成参数数量、批内冲突键去重/合并行数。
+- 通用场景：官方 Prometheus reporter 实现了 `OperationMetricsReporter`，会额外上报 SQL、Redis、自定义 processor 的 operation 生成数量、参数数量和错误。
+- SQL 场景：官方 Prometheus reporter 仍实现 `SQLMetricsReporter`，保留 SQL 专用指标兼容。
+
+### Observability
+
+`ObservabilityConfig` 用于配置结构化日志、采样、脱敏和 tracing hook：
+
+```go
+logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
+	BufferSize:       5000,
+	FlushSize:        200,
+	FlushInterval:    100 * time.Millisecond,
+	MetricsReporter:  reporter,
+	Observability: batchflow.ObservabilityConfig{
+		Logger:             logger,
+		Sampler:            batchflow.NewErrorAndSlowSampler(500 * time.Millisecond),
+		Redactor:           batchflow.DefaultRedactor(),
+		SlowBatchThreshold: 500 * time.Millisecond,
+	},
+})
+```
+
+默认建议：
+
+- 错误事件全量记录。
+- 成功事件按低比例采样，或只记录慢批次。
+- 不记录原始 row、SQL args、Redis key、HTTP body。
+- 自定义 processor 实现 `OperationPreviewer`，把 backend、operation、fingerprint 和安全 attributes 提供给框架。
 
 ### SQL Dry Run
 

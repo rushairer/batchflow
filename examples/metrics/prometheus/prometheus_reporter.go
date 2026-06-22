@@ -96,6 +96,22 @@ func (r *Reporter) IncSQLError(table string, stage batchflow.SQLStage, reason st
 	r.m.incSQLError(r.Database, r.InstanceID, table, string(stage), reason)
 }
 
+// ObserveOperationGenerated records backend-neutral operation generation metadata.
+func (r *Reporter) ObserveOperationGenerated(preview batchflow.OperationPreview) {
+	if r.m == nil {
+		return
+	}
+	r.m.observeOperationGenerated(r.Database, r.InstanceID, preview.Schema, preview)
+}
+
+// IncOperationError records backend-neutral operation errors.
+func (r *Reporter) IncOperationError(schema string, backend string, stage string, reason string) {
+	if r.m == nil {
+		return
+	}
+	r.m.incOperationError(r.Database, r.InstanceID, schema, backend, stage, reason)
+}
+
 // SetConcurrency 执行并发度
 func (r *Reporter) SetConcurrency(n int) {
 	if r.m == nil {
@@ -200,6 +216,7 @@ func (r *Reporter) ObserveSchemaGroupsPerFlush(n int) {
 var (
 	_ batchflow.MetricsReporter          = (*Reporter)(nil)
 	_ batchflow.SQLMetricsReporter       = (*Reporter)(nil)
+	_ batchflow.OperationMetricsReporter = (*Reporter)(nil)
 	_ batchflow.PipelineMetricsReporter  = (*Reporter)(nil)
 	_ batchflow.BatchFlowMetricsReporter = (*Reporter)(nil)
 )

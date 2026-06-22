@@ -3,8 +3,6 @@ package batchflow
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
-	"strings"
 )
 
 // SQLDedupStats describes client-side duplicate conflict-key handling before SQL generation.
@@ -117,10 +115,7 @@ func GenerateSQLPreview(ctx context.Context, driver SQLDriver, schema *SQLSchema
 }
 
 func FingerprintSQL(sqlText string) string {
-	normalized := strings.Join(strings.Fields(sqlText), " ")
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(normalized))
-	return fmt.Sprintf("%016x", h.Sum64())
+	return FingerprintText(sqlText)
 }
 
 func sqlUpdateColumnsForPreview(schema *SQLSchema) []string {
@@ -138,4 +133,42 @@ func sqlUpdateColumnsForPreview(schema *SQLSchema) []string {
 func analyzeSQLDedup(schema *SQLSchema, data []map[string]any) SQLDedupStats {
 	_, stats := deduplicateSQLRowsWithStats(schema, data)
 	return stats
+}
+
+func (p SQLPreview) OperationPreview() OperationPreview {
+	operation := OperationInsert
+	switch p.ConflictStrategy {
+	case ConflictIgnore, ConflictReplace, ConflictUpdate:
+		operation = OperationUpsert
+	}
+	return OperationPreview{
+		Backend:     BackendSQL,
+		Operation:   operation,
+		Schema:      p.Table,
+		InputItems:  p.DedupStats.InputRows,
+		OutputItems: p.DedupStats.OutputRows,
+		ArgCount:    p.ArgsCount,
+		Fingerprint: p.Fingerprint,
+		Attributes: map[string]any{
+			"conflict_strategy":       conflictStrategyName(p.ConflictStrategy),
+			"conflict_columns_count":  len(p.ConflictColumns),
+			"update_columns_count":    len(p.UpdateColumns),
+			"deduplicated_rows":       p.DedupStats.DeduplicatedRows,
+			"merged_rows":             p.DedupStats.MergedRows,
+			"deduplicate_output_rows": p.DedupStats.OutputRows,
+		},
+	}
+}
+
+func conflictStrategyName(strategy ConflictStrategy) string {
+	switch strategy {
+	case ConflictIgnore:
+		return "ignore"
+	case ConflictReplace:
+		return "replace"
+	case ConflictUpdate:
+		return "update"
+	default:
+		return "unknown"
+	}
 }

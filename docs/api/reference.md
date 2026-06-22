@@ -65,6 +65,7 @@ type PipelineConfig struct {
 	Retry            RetryConfig
 	Timeout          time.Duration
 	MetricsReporter  MetricsReporter
+	Observability    ObservabilityConfig
 	ConcurrencyLimit int
 }
 ```
@@ -223,7 +224,68 @@ func (e *ThrottledBatchExecutor) WithRetryConfig(cfg RetryConfig) *ThrottledBatc
 func (e *ThrottledBatchExecutor) WithConcurrencyLimit(limit int) *ThrottledBatchExecutor
 func (e *ThrottledBatchExecutor) WithMetricsReporter(reporter MetricsReporter) *ThrottledBatchExecutor
 func (e *ThrottledBatchExecutor) MetricsReporter() MetricsReporter
+func (e *ThrottledBatchExecutor) WithObserver(observer Observer) *ThrottledBatchExecutor
+func (e *ThrottledBatchExecutor) WithObservability(config ObservabilityConfig) *ThrottledBatchExecutor
 ```
+
+## 通用 Dry Run 与错误诊断
+
+Backend-neutral 预览接口：
+
+```go
+type OperationPreview struct {
+	Backend     string
+	Operation   string
+	Schema      string
+	InputItems  int
+	OutputItems int
+	ArgCount    int
+	Fingerprint string
+	Attributes  map[string]any
+}
+
+type OperationPreviewer interface {
+	GenerateOperationPreview(ctx context.Context, schema SchemaInterface, data []map[string]any) (Operations, OperationPreview, error)
+}
+```
+
+自定义 processor 实现 `OperationPreviewer` 后，框架会自动把 preview 用于结构化日志、指标和 tracing hook。`Attributes` 只放低基数字段或计数，不要放原始 payload、SQL 参数、Redis key、HTTP body。
+
+通用错误：
+
+```go
+type BatchError struct {
+	Stage       string
+	Backend     string
+	Schema      string
+	BatchSize   int
+	Fingerprint string
+	Attributes  map[string]any
+	Cause       error
+}
+```
+
+执行失败时可用 `errors.As(err, *BatchError)` 提取 backend、stage、schema、fingerprint 和安全 attributes。
+
+Observer / slog：
+
+```go
+type BatchEvent struct { /* stage, backend, schema, status, duration, fingerprint, err */ }
+
+type Observer interface {
+	OnBatchEvent(ctx context.Context, event BatchEvent)
+}
+
+type ObservabilityConfig struct {
+	Observer           Observer
+	Logger             *slog.Logger
+	Sampler            Sampler
+	Redactor           Redactor
+	SlowBatchThreshold time.Duration
+}
+```
+
+`NewSlogObserver` 提供结构化日志，默认错误全量采样、慢批次采样，并按字段名脱敏 `password`、`token`、`secret`、`email`、`phone` 等常见敏感字段。
 
 ## SQL Dry Run 与错误诊断
 
@@ -317,6 +379,17 @@ type SQLMetricsReporter interface {
 ```
 
 这是可选扩展接口。官方 Prometheus 示例已经实现该接口，用于区分 SQL 生成错误、执行错误、参数数量和批内冲突键合并情况。
+
+### OperationMetricsReporter
+
+```go
+type OperationMetricsReporter interface {
+	ObserveOperationGenerated(preview OperationPreview)
+	IncOperationError(schema string, backend string, stage string, reason string)
+}
+```
+
+这是 backend-neutral 指标扩展，适用于 SQL、Redis 和自定义 processor。官方 Prometheus 示例已经实现该接口。
 
 ### PipelineMetricsReporter
 

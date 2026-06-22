@@ -270,6 +270,9 @@ type PipelineConfig struct {
 	// 可选指标上报器（零值=关闭，向后兼容）
 	MetricsReporter MetricsReporter
 
+	// 可选通用观测配置（结构化日志、采样、脱敏、trace hook）
+	Observability ObservabilityConfig
+
 	// 可选并发限制（零值=无限制，向后兼容）
 	ConcurrencyLimit int
 }
@@ -286,6 +289,9 @@ func NewSQLBatchFlowWithDriver(ctx context.Context, db *sql.DB, config PipelineC
 	}
 	if config.MetricsReporter != nil {
 		executor.WithMetricsReporter(config.MetricsReporter)
+	}
+	if observer := config.Observability.observer(); observer != nil {
+		executor.WithObserver(observer)
 	}
 	if config.ConcurrencyLimit > 0 {
 		executor.WithConcurrencyLimit(config.ConcurrencyLimit)
@@ -332,6 +338,9 @@ func NewRedisBatchFlowWithDriver(ctx context.Context, db *redisV9.Client, config
 	}
 	if config.MetricsReporter != nil {
 		executor.WithMetricsReporter(config.MetricsReporter)
+	}
+	if observer := config.Observability.observer(); observer != nil {
+		executor.WithObserver(observer)
 	}
 	if config.ConcurrencyLimit > 0 {
 		executor.WithConcurrencyLimit(config.ConcurrencyLimit)
