@@ -12,6 +12,7 @@
 - [API 参考](api/reference.md)
 - [配置说明](api/configuration.md)
 - [使用示例](guides/examples.md)
+- [生产指南](guides/production.md)
 - [监控快速上手](guides/monitoring-quickstart.md)
 - [监控指南](guides/monitoring.md)
 - [Metrics 规格](guides/metrics-spec.md)
@@ -30,6 +31,6 @@
 
 ## 当前文档约定
 
-- `README`、`docs/api/reference.md`、`docs/guides/metrics-spec.md` 是一线契约文档。
+- `README`、`docs/api/reference.md`、`docs/guides/production.md`、`docs/guides/metrics-spec.md` 是一线契约文档。
 - 示例代码以仓库内真实 API 为准，不再使用历史包路径或过期签名。
 - `test/integration` 文档主要描述测试和仪表盘，不再承担业务接入文档角色。

@@ -215,6 +215,13 @@ flow := batchflow.NewBatchFlow(ctx, 1000, 100, 100*time.Millisecond, &MyExecutor
 defer flow.Close()
 ```
 
+如果希望复用限流、重试、operation metrics 和结构化日志，推荐实现 `BatchProcessor`，并额外实现 `OperationPreviewer` 提供安全 dry-run 信息。
+
+可编译示例：
+
+- [HTTP batch processor](../../examples/custom/http_processor_example_test.go)
+- [Bulk write processor](../../examples/custom/bulk_write_processor_example_test.go)
+
 ## 带重试和限流
 
 ```go
