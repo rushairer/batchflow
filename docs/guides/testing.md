@@ -8,6 +8,30 @@ go test -run '^$' ./...   # 只做全仓编译检查
 make docs-check
 ```
 
+## CI 分层
+
+### PR / main 快速 CI
+
+`.github/workflows/ci.yml` 只运行必须稳定、可快速反馈的检查：
+
+- `gofmt -s -l .`
+- `git diff --check`
+- `go vet ./...`
+- `golangci-lint run`
+- `scripts/check-doc-consistency.sh`
+- `go test ./...`
+- `go test -race .`
+
+这个层级用于阻止格式、静态检查、文档一致性、单元测试和核心并发语义回归。
+
+### Nightly / manual 长耗时测试
+
+`.github/workflows/nightly.yml` 承担 Docker 数据库、长时间压测和性能趋势类验证。MySQL、PostgreSQL、Redis、SQLite 的端到端压力验证不放进 PR 快速 CI，避免把网络、镜像拉取、服务启动和长时间负载波动变成日常合并阻塞项。
+
+### Release 验证
+
+发布前应在快速 CI 通过后，再运行数据库集成测试、性能基准和文档发布检查。SQL 写入语义、观测事件、错误分类、重试策略这类跨模块改动必须至少覆盖单元测试和对应数据库的 Docker 真机测试。
+
 ## 推荐测试分层
 
 ### 1. 契约测试
