@@ -23,7 +23,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Set up database services
       run: |
@@ -108,7 +108,7 @@ jobs:
         docker rm temp-${{ matrix.database }} || true
 
     - name: Upload performance reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: nightly-performance-${{ matrix.database }}-${{ matrix.test-duration }}
@@ -130,7 +130,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Build SQLite test image
       run: |
@@ -156,7 +156,7 @@ jobs:
         docker rm temp-sqlite || true
 
     - name: Upload SQLite stress reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: nightly-sqlite-stress-test
@@ -219,7 +219,7 @@ jobs:
         echo "- SQLite limitations are expected and documented" >> performance_analysis.md
 
     - name: Upload performance analysis
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: nightly-performance-analysis
         path: performance_analysis.md

@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -31,3 +31,4 @@ jobs:
         with:
           go-version-input: ${{ env.GO_VERSION }}
           go-package: ./...
+          repo-checkout: false
