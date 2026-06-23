@@ -4,6 +4,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+search_docs() {
+  local pattern="$1"
+  shift
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -n "$pattern" "$@"
+  else
+    grep -En "$pattern" "$@"
+  fi
+}
+
 DOCS=(
   "$ROOT/README.md"
   "$ROOT/README.zh-CN.md"
@@ -37,9 +48,9 @@ forbidden_patterns=(
 )
 
 for pattern in "${forbidden_patterns[@]}"; do
-  if rg -n "$pattern" "${DOCS[@]}" >/dev/null; then
+  if search_docs "$pattern" "${DOCS[@]}" >/dev/null; then
     echo "forbidden stale doc pattern found: $pattern" >&2
-    rg -n "$pattern" "${DOCS[@]}" >&2
+    search_docs "$pattern" "${DOCS[@]}" >&2
     exit 1
   fi
 done
@@ -56,7 +67,7 @@ required_patterns=(
 )
 
 for pattern in "${required_patterns[@]}"; do
-  if ! rg -n "$pattern" "$ROOT/README.md" "$ROOT/docs/api/reference.md" "$ROOT/docs/guides/metrics-spec.md" >/dev/null; then
+  if ! search_docs "$pattern" "$ROOT/README.md" "$ROOT/docs/api/reference.md" "$ROOT/docs/guides/metrics-spec.md" >/dev/null; then
     echo "required contract pattern missing: $pattern" >&2
     exit 1
   fi
@@ -74,7 +85,7 @@ request_required_patterns=(
 )
 
 for pattern in "${request_required_patterns[@]}"; do
-  if ! rg -n "$pattern" "${request_contract_docs[@]}" >/dev/null; then
+  if ! search_docs "$pattern" "${request_contract_docs[@]}" >/dev/null; then
     echo "required request contract pattern missing: $pattern" >&2
     exit 1
   fi
@@ -86,7 +97,7 @@ install_docs=(
 )
 
 for doc in "${install_docs[@]}"; do
-  if ! rg -n 'go get github.com/rushairer/batchflow/v2' "$doc" >/dev/null; then
+  if ! search_docs 'go get github.com/rushairer/batchflow/v2' "$doc" >/dev/null; then
     echo "v2 install command missing: $doc" >&2
     exit 1
   fi
@@ -102,9 +113,9 @@ english_docs=(
 )
 
 for doc in "${english_docs[@]}"; do
-  if rg -n '[一-龥]' "$doc" >/dev/null; then
+  if search_docs '[一-龥]' "$doc" >/dev/null; then
     echo "canonical English doc contains CJK text: $doc" >&2
-    rg -n '[一-龥]' "$doc" >&2
+    search_docs '[一-龥]' "$doc" >&2
     exit 1
   fi
 done
