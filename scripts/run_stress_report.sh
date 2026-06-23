@@ -7,6 +7,7 @@ OUT_DIR="$ROOT_DIR/reports/stress/$TS"
 RAW_DIR="$OUT_DIR/raw"
 REPORT="$OUT_DIR/stress-report.md"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.integration.yml"
+OVERRIDE_FILE="$OUT_DIR/docker-compose.stress.override.yml"
 
 BACKENDS=("mysql" "postgres" "redis")
 INCLUDE_SQLITE=false
@@ -75,6 +76,42 @@ export BATCH_SIZE="${BATCH_SIZE:-500}"
 export BUFFER_SIZE="${BUFFER_SIZE:-10000}"
 export FLUSH_INTERVAL="${FLUSH_INTERVAL:-50ms}"
 
+cat > "$OVERRIDE_FILE" <<EOF
+services:
+  mysql-test:
+    environment:
+      TEST_DURATION: "${TEST_DURATION}"
+      CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
+      RECORDS_PER_WORKER: "${RECORDS_PER_WORKER}"
+      BATCH_SIZE: "${BATCH_SIZE}"
+      BUFFER_SIZE: "${BUFFER_SIZE}"
+      FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
+  postgres-test:
+    environment:
+      TEST_DURATION: "${TEST_DURATION}"
+      CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
+      RECORDS_PER_WORKER: "${RECORDS_PER_WORKER}"
+      BATCH_SIZE: "${BATCH_SIZE}"
+      BUFFER_SIZE: "${BUFFER_SIZE}"
+      FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
+  redis-test:
+    environment:
+      TEST_DURATION: "${TEST_DURATION}"
+      CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
+      RECORDS_PER_WORKER: "${RECORDS_PER_WORKER}"
+      BATCH_SIZE: "${BATCH_SIZE}"
+      BUFFER_SIZE: "${BUFFER_SIZE}"
+      FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
+  sqlite-test:
+    environment:
+      TEST_DURATION: "${TEST_DURATION}"
+      CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
+      RECORDS_PER_WORKER: "${RECORDS_PER_WORKER}"
+      BATCH_SIZE: "${BATCH_SIZE}"
+      BUFFER_SIZE: "${BUFFER_SIZE}"
+      FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
+EOF
+
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 command -v ruby >/dev/null 2>&1 || { echo "ruby is required to summarize JSON reports" >&2; exit 1; }
 
@@ -103,7 +140,9 @@ run_backend() {
   echo "==> Running $backend stress test with $target"
   (
     cd "$ROOT_DIR"
-    make "$target"
+    docker compose -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" down "$backend" "$backend-test" -v --remove-orphans
+    docker compose -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" build "$backend" "$backend-test" --no-cache
+    docker compose -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" up "$backend" "$backend-test" --abort-on-container-exit --exit-code-from "$backend-test"
   )
 
   find "$ROOT_DIR/test/reports" -maxdepth 1 -type f -name 'integration_test_report_*' -print 2>/dev/null | sort > "$after_file" || true
