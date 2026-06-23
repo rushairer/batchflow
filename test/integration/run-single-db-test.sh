@@ -34,7 +34,7 @@ if [ "$TEST_TYPE" = "mysql" ] && [ ! -z "$MYSQL_DSN" ]; then
     echo "   正在检查 MySQL 连接..."
     MYSQL_READY=false
     for i in {1..30}; do
-        if timeout 5 mysqladmin -h mysql -u testuser -ptestpass123 ping --silent >/dev/null 2>&1; then
+        if timeout 5 mysqladmin --ssl=0 -h mysql -u testuser -ptestpass123 ping --silent >/dev/null 2>&1; then
             echo "   ✅ MySQL 已就绪，可进行高性能测试"
             MYSQL_READY=true
             break
