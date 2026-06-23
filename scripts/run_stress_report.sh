@@ -78,7 +78,16 @@ export FLUSH_INTERVAL="${FLUSH_INTERVAL:-50ms}"
 
 cat > "$OVERRIDE_FILE" <<EOF
 services:
+  mysql:
+    ports: !reset []
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  sqlite:
+    ports: !reset []
   mysql-test:
+    ports: !reset []
     environment:
       TEST_DURATION: "${TEST_DURATION}"
       CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
@@ -87,6 +96,7 @@ services:
       BUFFER_SIZE: "${BUFFER_SIZE}"
       FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
   postgres-test:
+    ports: !reset []
     environment:
       TEST_DURATION: "${TEST_DURATION}"
       CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
@@ -95,6 +105,7 @@ services:
       BUFFER_SIZE: "${BUFFER_SIZE}"
       FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
   redis-test:
+    ports: !reset []
     environment:
       TEST_DURATION: "${TEST_DURATION}"
       CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
@@ -103,6 +114,7 @@ services:
       BUFFER_SIZE: "${BUFFER_SIZE}"
       FLUSH_INTERVAL: "${FLUSH_INTERVAL}"
   sqlite-test:
+    ports: !reset []
     environment:
       TEST_DURATION: "${TEST_DURATION}"
       CONCURRENT_WORKERS: "${CONCURRENT_WORKERS}"
