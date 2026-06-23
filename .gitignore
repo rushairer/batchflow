@@ -5,6 +5,7 @@ coverage.txt
 *.cover
 *.coverprofile
 test/reports
+reports/stress
 
 # 构建产物
 *.exe
