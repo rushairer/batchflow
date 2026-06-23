@@ -33,6 +33,7 @@ Recommended reading path:
 - [Integration tests](guides/integration-tests.md)
 - [go-pipeline metrics integration](guides/go-pipeline-metrics.md)
 - [Quality guide](development/quality.md)
+- [Test organization](development/test-organization.md)
 - [Release process](development/release.md)
 - [Changelog](development/changelog.md)
 

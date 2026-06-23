@@ -3,6 +3,7 @@ package batchflow_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -11,7 +12,15 @@ import (
 	"github.com/rushairer/batchflow/v2"
 )
 
+func requireStress(t *testing.T) {
+	t.Helper()
+	if os.Getenv("BATCHFLOW_STRESS_TESTS") != "1" {
+		t.Skip("set BATCHFLOW_STRESS_TESTS=1 to run large-data stress tests")
+	}
+}
+
 func TestLargeData_MillionRecords(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("Skipping large data test in short mode")
 	}
@@ -79,6 +88,7 @@ func TestLargeData_MillionRecords(t *testing.T) {
 }
 
 func TestLargeData_WideTable(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("Skipping wide table test in short mode")
 	}
@@ -145,6 +155,7 @@ func TestLargeData_WideTable(t *testing.T) {
 }
 
 func TestLargeData_LargeStrings(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("Skipping large strings test in short mode")
 	}
@@ -204,6 +215,7 @@ func TestLargeData_LargeStrings(t *testing.T) {
 }
 
 func TestLargeData_MemoryPressure(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("Skipping memory pressure test in short mode")
 	}
@@ -279,6 +291,7 @@ func TestLargeData_MemoryPressure(t *testing.T) {
 }
 
 func TestLargeData_HighThroughput(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("Skipping high throughput test in short mode")
 	}
@@ -356,6 +369,7 @@ MainLoop:
 }
 
 func TestLargeData_BatchSizeOptimization(t *testing.T) {
+	requireStress(t)
 	if testing.Short() {
 		t.Skip("Skipping batch size optimization test in short mode")
 	}
