@@ -177,11 +177,10 @@ go run main.go
 ## 🔗 相关文档
 
 - **[../README.md](../README.md)** - SQLite 测试工具集总览
-- **[../SQLITE_OPTIMIZATION.md](../SQLITE_OPTIMIZATION.md)** - SQLite 优化文档
-- **[../PERFORMANCE_ANALYSIS.md](../PERFORMANCE_ANALYSIS.md)** - 性能分析报告
-- **[../TEST_REPORT_ANALYSIS.md](../TEST_REPORT_ANALYSIS.md)** - 测试报告分析
-- **[../../CONFIG.md](../../CONFIG.md)** - 统一配置说明
-- **[../../README-INTEGRATION-TESTS.md](../../README-INTEGRATION-TESTS.md)** - 集成测试文档
+- **[../../../docs/guides/testing.md](../../../docs/guides/testing.md)** - 当前测试指南
+- **[../../../docs/guides/integration-tests.md](../../../docs/guides/integration-tests.md)** - 集成测试文档
+- **[../../../docs/reports/stress-baseline.md](../../../docs/reports/stress-baseline.md)** - 当前压力测试基线说明
+- **[../../../docs/reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md](../../../docs/reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md)** - 当前中文压测总结
 
 ## 🤝 扩展开发
 

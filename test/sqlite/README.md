@@ -101,24 +101,23 @@ go run main.go
 ## 相关文档和配置
 
 ### 文档
-- **[SQLITE_OPTIMIZATION.md](SQLITE_OPTIMIZATION.md)** - SQLite 性能优化总结和解决方案
-- **[PERFORMANCE_ANALYSIS.md](PERFORMANCE_ANALYSIS.md)** - SQLite 性能分析报告和问题诊断  
-- **[TEST_REPORT_ANALYSIS.md](TEST_REPORT_ANALYSIS.md)** - 测试报告详细分析（包含测试参数）
 - **[tools/README.md](tools/README.md)** - 测试工具集详细说明
+- **[../../docs/guides/testing.md](../../docs/guides/testing.md)** - 当前测试分层和 Docker 压测入口
+- **[../../docs/reports/stress-baseline.md](../../docs/reports/stress-baseline.md)** - 当前压力测试基线说明
+- **[../../docs/reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md](../../docs/reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md)** - 当前中文压测总结
 
 ### 配置文件
 - **[../../.env.sqlite.test](../../.env.sqlite.test)** - SQLite 专用测试配置  
 - **[../../docker-compose.sqlite.yml](../../docker-compose.sqlite.yml)** - SQLite Docker 配置
-- **[../../CONFIG.md](../../CONFIG.md)** - 统一配置说明文档
+- **[../../docs/api/configuration.md](../../docs/api/configuration.md)** - 当前统一配置说明
 
 ### 项目文档
 - **[../../README.md](../../README.md)** - 项目主文档
-- **[../../QUALITY_ASSESSMENT.md](../../QUALITY_ASSESSMENT.md)** - 项目质量评估报告
-- **[../../README-INTEGRATION-TESTS.md](../../README-INTEGRATION-TESTS.md)** - 集成测试文档
+- **[../../docs/guides/integration-tests.md](../../docs/guides/integration-tests.md)** - 集成测试文档
 
 ## 配置选择建议
 
-- **问题排查**: 参考 [TEST_REPORT_ANALYSIS.md](TEST_REPORT_ANALYSIS.md) 查看详细测试分析
-- **性能优化**: 参考 [PERFORMANCE_ANALYSIS.md](PERFORMANCE_ANALYSIS.md) 了解优化方案
-- **历史问题**: 参考 [SQLITE_OPTIMIZATION.md](SQLITE_OPTIMIZATION.md) 了解解决过程
+- **问题排查**: 参考 [../../docs/guides/testing.md](../../docs/guides/testing.md) 和 [../../docs/guides/troubleshooting.md](../../docs/guides/troubleshooting.md)
+- **性能基线**: 参考 [../../docs/reports/stress-baseline.md](../../docs/reports/stress-baseline.md)
+- **当前结果**: 参考 [../../docs/reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md](../../docs/reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md)
 - **工具使用**: 参考 [tools/README.md](tools/README.md) 了解各工具详细用法

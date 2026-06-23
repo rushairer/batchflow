@@ -42,4 +42,4 @@ Recommended reading path:
 - Examples must compile against `github.com/rushairer/batchflow/v2`.
 - SQL update/replace examples must use explicit `ConflictColumns`.
 - Non-SQL duplicate-key behavior must use `PipelineConfig.Coalescer`.
-- Historical performance notes under `docs/reports` are archive material, not the current public contract.
+- `docs/reports` should contain only current, reviewable reports or baseline instructions.
