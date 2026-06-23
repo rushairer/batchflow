@@ -2,16 +2,85 @@
 
 ## [Unreleased]
 
+- No unreleased changes yet.
+
+## [v2.0.0] - 2026-06-23
+
+### Module path
+
+- Changed the Go module path to `github.com/rushairer/batchflow/v2`.
+- Raised the minimum Go version to 1.24 to consume security fixes in transitive dependencies.
+- Documented v1/v2 coexistence and migration expectations.
+
+### SQL update and replace
+
+- Added explicit SQL conflict-key configuration through `SQLOperationConfig.ConflictColumns`.
+- Added `SQLOperationConfig.UpdateColumns` for `ConflictUpdate`.
+- Added `SQLOperationConfig.DeduplicateByConflictColumns`, enabled by default.
+- Added chainable SQL configuration helpers:
+  - `WithConflictColumns(cols ...string)`
+  - `WithUpdateColumns(cols ...string)`
+  - `WithDeduplicateByConflictColumns(enabled bool)`
+- Changed PostgreSQL update/replace generation to use explicit `ON CONFLICT (...)` columns.
+- Defined PostgreSQL `ConflictReplace` as upsert overwrite of all non-conflict columns.
+- Kept MySQL `ConflictReplace` as native `REPLACE INTO`.
+- Prevented MySQL `ConflictUpdate` from updating configured conflict columns.
+- Added in-batch duplicate conflict-key handling:
+  - `ConflictIgnore` keeps the first row.
+  - `ConflictReplace` keeps the last row.
+  - `ConflictUpdate` merges fields present in later rows.
+- Added driver-level tests for PostgreSQL composite conflict keys, update-column selection, replace semantics, and MySQL primary-key update avoidance.
+
+### Generic batch coalescing
+
+- Added backend-neutral batch aliases `Record` and `Batch`.
+- Added `Coalescer`, `CoalesceResult`, `CoalesceStrategy`, and `NewKeyCoalescer`.
+- Added non-SQL duplicate-key strategies:
+  - `CoalesceKeepFirst`
+  - `CoalesceKeepLast`
+  - `CoalesceMergePresentFields`
+- Added `PipelineConfig.Coalescer` for Redis, HTTP, document-store, queue, and custom backends.
+
+### Diagnostics and observability
+
+- Added `GenerateSQLPreview`, `SQLPreview`, `SQLDedupStats`, `SQLError`, and `SQLStage` for SQL dry-run inspection.
+- Added safe SQL fingerprints and argument counts for production diagnostics.
+- Added structured error classification extension:
+  - `RegisterErrorClassifier`
+  - `ErrorClassifier`
+  - `ErrorClassifierFunc`
+- Upgraded built-in error classification to prefer structured PostgreSQL SQLSTATE, MySQL error numbers, and Redis error types before string fallback.
+- Added observability documentation for structured logging, sampling, and redaction.
+
 ### Enterprise readiness
+
 - Added open-source governance and security documentation.
 - Added security scanning and dependency update automation.
 - Strengthened CI, coverage, release, and nightly test gates.
-- Documented API stability, release policy, and error classification contracts.
-- Added v2-oriented batch coalescing, config validation, error classifier extension, and migration documentation.
+- Documented API stability, release policy, error classification, and production readiness contracts.
+- Added English canonical docs and Chinese mirror docs.
+- Added compiled examples for SQL preview, Redis coalescing, custom processors, Prometheus metrics, and custom error classification.
+- Added reproducible Docker stress-report tooling through `scripts/run_stress_report.sh`.
+- Added a human-readable Chinese stress-test summary for MySQL, PostgreSQL, and Redis.
+- Removed stale historical performance reports that no longer reflected the current v2 architecture.
+
+### Validation
+
+- `go test ./...`
+- `go vet ./...`
+- `make lint`
+- `make docs-check`
+- `go test -race .`
+- Docker stress test for MySQL, PostgreSQL, and Redis:
+  - 17 result rows
+  - 17 passed
+  - 0 failed
+  - 100% data integrity
 
 ## [v1.1.1] - 2026-04-09
 
 ### 生命周期示例 / Request setter / 文档一致性补强
+
 - 生命周期：
   - 新增可编译示例 `ExampleBatchFlow_Close` 与 `ExampleBatchFlow_Done`
   - 补充 `Wait()` / `Done()` 契约测试：覆盖 `Close()` 后退出信号、重复关闭幂等、父上下文取消返回值
@@ -25,6 +94,7 @@
 ## [v1.1.0] - 2026-04-09
 
 ### API / Metrics / Docs 契约收敛
+
 - 生命周期：
   - `BatchFlow` 新增 `Close()`、`Wait()`、`Done()`，补齐公开生命周期契约
   - `Close()` 负责停止接收输入、触发最终 flush 并等待后台退出
@@ -40,6 +110,7 @@
   - 新增 `make docs-check` 与 `scripts/check-doc-consistency.sh`，阻止关键文档继续引用过期 API/指标
 
 ### 2025-12-02 - 指标体系升级
+
 - 标签体系重构：
   - 引入 `instance_id` 标签替代 `test_name`，支持多实例隔离
   - 明确 `database` 语义：仅表示数据库类型（mysql/postgres/sqlite/redis）
@@ -57,6 +128,7 @@
   - 添加管道级指标说明
 
 ## 2025-10-13
+
 - go-pipeline 升级对齐与指标接入：
   - 新增可选扩展接口 PipelineMetricsReporter（ObserveDequeueLatency/ObserveProcessDuration/IncDropped），不破坏原 MetricsReporter
   - 新增 gopipeline_metrics_adapter，实现 go-pipeline v2.2.0 MetricsHook 并注入 WithMetrics

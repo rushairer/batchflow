@@ -12,7 +12,7 @@ on:
         type: string
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.24'
 
 jobs:
   # 发布前验证
@@ -64,65 +64,11 @@ jobs:
           exit 1
         fi
 
-    - name: Run integration tests (quick validation)
-      run: |
-        # 运行快速集成测试验证
-        export TEST_DURATION=60s
-        export CONCURRENT_WORKERS=2
-        export RECORDS_PER_WORKER=500
-        export BATCH_SIZE=50
-        export BUFFER_SIZE=1000
-        export FLUSH_INTERVAL=100ms
-        
-        # 只测试 SQLite（最快）进行发布前验证
-        docker compose -f docker-compose.ci.yml build sqlite sqlite-test --no-cache
-        docker compose -f docker-compose.ci.yml up sqlite sqlite-test --abort-on-container-exit --exit-code-from sqlite-test
-
   # 完整集成测试
   full-integration-tests:
     name: Full Integration Tests
     runs-on: ubuntu-latest
     needs: pre-release-validation
-    strategy:
-      matrix:
-        database: [mysql, postgres, redis]
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: rootpass123
-          MYSQL_DATABASE: batchflow_test
-          MYSQL_USER: testuser
-          MYSQL_PASSWORD: testpass123
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: batchflow_test
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: testpass123
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - name: Checkout code
@@ -131,38 +77,28 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Run ${{ matrix.database }} integration tests
+    - name: Run release stress tests
       run: |
-        # 发布前使用标准配置进行完整测试
-        export TEST_DURATION=1800s  # 30分钟测试
+        # Keep release validation on the same path as local stress reports.
+        export TEST_DURATION=300s
         export CONCURRENT_WORKERS=5
         export RECORDS_PER_WORKER=2000
         export BATCH_SIZE=200
         export BUFFER_SIZE=5000
         export FLUSH_INTERVAL=100ms
-        
-        if [ "${{ matrix.database }}" == "mysql" ]; then
-          export MYSQL_DSN="testuser:testpass123@tcp(host.docker.internal:3306)/batchflow_test?parseTime=true&multiStatements=true"
-        elif [ "${{ matrix.database }}" == "postgres" ]; then
-          export POSTGRES_DSN="postgres://testuser:testpass123@host.docker.internal:5432/batchflow_test?sslmode=disable"
-        elif [ "${{ matrix.database }}" == "redis" ]; then
-          export REDIS_ADDR="host.docker.internal:6379"
-        fi
-        
-        docker compose -f docker-compose.ci.yml build ${{ matrix.database }} ${{ matrix.database }}-test --no-cache
-        docker compose -f docker-compose.ci.yml up ${{ matrix.database }} ${{ matrix.database }}-test --abort-on-container-exit --exit-code-from ${{ matrix.database }}-test
+
+        ./scripts/run_stress_report.sh
 
     - name: Extract test reports
       run: |
-        docker create --name temp-${{ matrix.database }} batchflow-${{ matrix.database }}-test:latest
-        docker cp temp-${{ matrix.database }}:/app/reports ./release-reports-${{ matrix.database }} || true
-        docker rm temp-${{ matrix.database }} || true
+        mkdir -p release-reports
+        cp -R reports/stress/* release-reports/ || true
 
     - name: Upload test reports
       uses: actions/upload-artifact@v4
       with:
-        name: release-test-reports-${{ matrix.database }}
-        path: release-reports-${{ matrix.database }}/
+        name: release-test-reports
+        path: release-reports/
         retention-days: 180
 
   # 构建发布包

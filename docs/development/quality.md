@@ -1,93 +1,81 @@
-# BatchFlow 项目质量评估报告
+# Quality and Release Readiness
 
-## 📊 测试报告分析总结
+This page describes the current quality baseline for BatchFlow v2.
 
-基于 test/reports 目录下的集成测试报告（2025-09-27），对项目质量状态进行全面评估：
+## Current Assessment
 
-### 1️⃣ 通过率与失败用例分析
+BatchFlow is ready for a v2 release candidate and can be promoted to a formal v2 release after the release workflow completes successfully on GitHub Actions.
 
-| 数据库 | 测试数量 | 通过 | 失败 | 通过率 | BatchFlow 实现状态 |
-|--------|----------|------|------|--------|------------------|
-| **SQLite** | 5 | 4 | 1 | 80% | ✅ 正常（失败为 SQLite 架构限制） |
-| **MySQL** | 5 | 5 | 0 | 100% | ✅ 优秀 |
-| **PostgreSQL** | 5 | 5 | 0 | 100% | ✅ 优秀 |
-| **总计** | 15 | 14 | 1 | 93.3% | ✅ 优秀 |
+The current local validation and Docker stress results support release readiness:
 
-**失败用例分析**：
-- **SQLite Large Batch Test**：100% 数据丢失（批次大小 5000）
-- **根因说明**：这是 SQLite 自身的架构限制，而非 BatchFlow 项目缺陷
-  - SQLite 是单写入者架构，不支持真正的并发写入
-  - 大批次写入时容易触发 SQLite 的锁竞争和事务冲突
-  - 这是 SQLite 数据库引擎的固有特性，无法通过应用层优化解决
+- Core unit tests pass.
+- Core race tests pass.
+- Static checks pass.
+- Security scanning must pass with a patched Go 1.24+ toolchain.
+- Documentation consistency checks pass.
+- MySQL, PostgreSQL, and Redis Docker stress tests pass with 100% data integrity.
+- PostgreSQL/MySQL update and replace duplicate-key semantics are covered by unit tests and real database stress tests.
 
-### 2️⃣ 关键功能覆盖情况
+## Latest Local Validation
 
-✅ **BatchFlow 核心功能验证**：
-- 高吞吐量单线程写入：**完全正常**
-- 并发多工作者写入：**完全正常**  
-- 大批次数据处理：**完全正常**（MySQL/PostgreSQL）
-- 内存压力测试：**完全正常**
-- 长时间运行稳定性：**完全正常**
+The latest local release-readiness pass included:
 
-✅ **数据完整性检测机制**：
-- 实现了提交记录数 vs 实际记录数对比
-- 数据完整性不是 100% 时，RPS 自动标记为无效
-- 完整的错误追踪和报告机制
-- **BatchFlow 的数据完整性检测功能工作正常**
+```bash
+go test ./...
+go vet ./...
+make lint
+make docs-check
+go test -race .
+```
 
-### 3️⃣ 性能指标达标率
+All commands passed.
 
-| 数据库 | 平均 RPS | 最大 RPS | 数据完整性 | BatchFlow 性能评级 |
-|--------|----------|----------|------------|------------------|
-| **SQLite** | 105,246 | 199,071 | 80% 测试通过 | ✅ 符合 SQLite 预期 |
-| **MySQL** | 144,879 | 168,472 | 100% 测试通过 | ✅ 优秀 |
-| **PostgreSQL** | 152,586 | 191,037 | 100% 测试通过 | ✅ 优秀 |
+## Latest Docker Stress Result
 
-**BatchFlow 性能表现**：
-- **MySQL/PostgreSQL**: BatchFlow 充分发挥了数据库性能，表现优秀
-- **SQLite**: BatchFlow 在 SQLite 架构限制下仍达到了合理的性能水平
-- **单线程峰值**: 超过 19 万 RPS，证明 BatchFlow 处理效率很高
-- **内存管理**: 合理的内存使用，GC 压力可控
+The latest MySQL, PostgreSQL, and Redis Docker stress run is summarized in:
 
-### 4️⃣ 技术架构限制说明
+- [Stress test summary, Chinese](../reports/STRESS_TEST_SUMMARY_2026-06-23.zh-CN.md)
+- [Stress test baseline](../reports/stress-baseline.md)
 
-🔵 **SQLite 架构限制**（非 BatchFlow 问题）：
-- **单写入者设计**：SQLite 本质上是单写入者数据库，不支持真正的并发写入
-- **锁机制限制**：大批次操作容易触发数据库级别的锁竞争
-- **事务隔离**：高并发场景下容易出现事务冲突和回滚
-- **适用场景**：SQLite 更适合轻量级、低并发的应用场景
+Summary:
 
-🟢 **BatchFlow 项目状态**：
-- **代码质量**：无需修复，实现正确
-- **功能完整性**：所有核心功能正常工作
-- **错误处理**：正确识别并报告了 SQLite 的限制
-- **性能优化**：在各数据库的架构限制内达到了最优性能
+| Backend | Result | Data integrity | Notes |
+| --- | --- | ---: | --- |
+| MySQL | Passed | 100% | Includes duplicate-key upsert semantics |
+| PostgreSQL | Passed | 100% | Includes duplicate-key upsert semantics |
+| Redis | Passed | 100% | Covers non-SQL batch execution path |
 
-## 🎯 发布建议
+SQLite remains supported, but high-concurrency SQLite stress is optional and non-gating because SQLite uses a single-writer architecture.
 
-### **结论：可以发布** ✅
+## Release Gates
 
-**理由**：
-1. **BatchFlow 项目本身无缺陷**：所有失败都源于 SQLite 的架构限制
-2. **核心功能完整**：在 MySQL/PostgreSQL 上表现优秀，证明 BatchFlow 设计正确
-3. **错误检测机制完善**：能够正确识别和报告数据完整性问题
-4. **性能表现优秀**：在支持并发的数据库上达到了预期性能
+Before tagging a release, the following gates should pass:
 
-### **建议措施**：
-1. **文档说明**：在文档中明确说明 SQLite 的使用限制和推荐场景
-2. **配置建议**：为 SQLite 提供保守的默认配置参数
-3. **最佳实践**：提供针对不同数据库的使用建议
+- `go test ./...`
+- `go test -race .`
+- `go vet ./...`
+- `go test -run '^$' ./...`
+- `make cover`
+- `make docs-check`
+- `make security` or `govulncheck ./...`
+- Docker stress tests for MySQL, PostgreSQL, and Redis
 
-### **SQLite 使用建议**：
-- **推荐场景**：单线程、小批次、轻量级应用
-- **不推荐场景**：高并发、大批次、企业级应用
-- **替代方案**：高性能场景建议使用 MySQL 或 PostgreSQL
+## Quality Risks
 
-## 📋 总结
+Known residual risks:
 
-BatchFlow 项目质量优秀，所有核心功能正常工作。SQLite 相关的测试失败是数据库引擎自身的架构限制，而非项目缺陷。项目已正确实现了对这些限制的检测和报告，可以安全发布。
+- The latest stress report is a short local run, not a long-duration production capacity benchmark.
+- Full release confidence still depends on GitHub Actions completing successfully in the target repository.
+- `BatchProcessor`, `OperationPreviewer`, and observability extension points are documented as experimental extension APIs in the API stability policy.
+- SQLite should not be presented as a high-concurrency write backend.
 
----
-*评估时间：2025-09-27*  
-*评估版本：基于最新集成测试报告*  
-*结论：BatchFlow 项目质量优秀，SQLite 限制为数据库引擎固有特性*
+## Release Recommendation
+
+Recommended sequence:
+
+1. Run the local release gates.
+2. Push `main` and confirm CI plus security workflows pass.
+3. Run or trigger the release workflow with the intended version.
+4. If GitHub Actions passes, tag the release.
+
+For a conservative rollout, publish `v2.0.0-rc.1` first. If downstream validation is clean, promote to `v2.0.0`.
