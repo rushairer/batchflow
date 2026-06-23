@@ -19,8 +19,8 @@ COPY . .
 # 构建测试二进制文件
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o integration-test ./test/integration/
 
-# 运行阶段 - 使用稳定的 Alpine 镜像
-FROM alpine:3.17
+# 运行阶段 - 使用受支持的 Alpine 镜像
+FROM alpine:3.22
 
 # 安装运行时依赖和数据库客户端工具
 RUN apk add --no-cache ca-certificates bash
