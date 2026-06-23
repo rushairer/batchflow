@@ -95,7 +95,7 @@ jobs:
         cp -R reports/stress/* release-reports/ || true
 
     - name: Upload test reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: release-test-reports
         path: release-reports/
@@ -148,7 +148,7 @@ jobs:
         sha256sum * > checksums.txt
 
     - name: Upload release artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: release-artifacts
         path: release/
@@ -193,7 +193,7 @@ jobs:
         fi
 
     - name: Upload changelog
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: changelog
         path: CHANGELOG.md
