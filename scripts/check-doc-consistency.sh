@@ -6,10 +6,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DOCS=(
   "$ROOT/README.md"
+  "$ROOT/README.zh-CN.md"
   "$ROOT/docs/index.md"
   "$ROOT/docs/api/reference.md"
   "$ROOT/docs/api/configuration.md"
   "$ROOT/docs/guides/examples.md"
+  "$ROOT/docs/guides/production.md"
+  "$ROOT/docs/guides/testing.md"
   "$ROOT/docs/guides/monitoring.md"
   "$ROOT/docs/guides/monitoring-quickstart.md"
   "$ROOT/docs/guides/custom-metrics-reporter.md"
@@ -24,6 +27,7 @@ done
 
 forbidden_patterns=(
   'github.com/rushairer/batchflow/drivers/'
+  'github.com/rushairer/batchflow"'
   '\.\(\*batchflow\.ThrottledBatchExecutor\)'
   'go-pipeline v2\.2\.0'
   'batchflow_batch_execution_duration_ms'
@@ -45,6 +49,10 @@ required_patterns=(
   'Done\(\)'
   'pipeline_flush_size'
   'submit_rejected_total'
+  'GenerateSQLPreview'
+  'RegisterErrorClassifier'
+  'ConflictColumns'
+  'Coalescer'
 )
 
 for pattern in "${required_patterns[@]}"; do
@@ -68,6 +76,35 @@ request_required_patterns=(
 for pattern in "${request_required_patterns[@]}"; do
   if ! rg -n "$pattern" "${request_contract_docs[@]}" >/dev/null; then
     echo "required request contract pattern missing: $pattern" >&2
+    exit 1
+  fi
+done
+
+install_docs=(
+  "$ROOT/README.md"
+  "$ROOT/README.zh-CN.md"
+)
+
+for doc in "${install_docs[@]}"; do
+  if ! rg -n 'go get github.com/rushairer/batchflow/v2' "$doc" >/dev/null; then
+    echo "v2 install command missing: $doc" >&2
+    exit 1
+  fi
+done
+
+english_docs=(
+  "$ROOT/README.md"
+  "$ROOT/docs/index.md"
+  "$ROOT/docs/api/configuration.md"
+  "$ROOT/docs/guides/examples.md"
+  "$ROOT/docs/guides/production.md"
+  "$ROOT/docs/guides/testing.md"
+)
+
+for doc in "${english_docs[@]}"; do
+  if rg -n '[一-龥]' "$doc" >/dev/null; then
+    echo "canonical English doc contains CJK text: $doc" >&2
+    rg -n '[一-龥]' "$doc" >&2
     exit 1
   fi
 done

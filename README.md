@@ -5,24 +5,27 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/rushairer/batchflow/v2)](https://goreportcard.com/report/github.com/rushairer/batchflow/v2)
 [![License](https://img.shields.io/github/license/rushairer/batchflow)](https://github.com/rushairer/batchflow/blob/main/LICENSE)
 
-一个通用的 Go 批处理框架，基于 [go-pipeline](https://github.com/rushairer/go-pipeline) 构建，统一封装了批量攒批、异步 flush、执行器重试、可选并发限流和指标接入。
+BatchFlow is a Go batch-processing framework built on [go-pipeline](https://github.com/rushairer/go-pipeline). It provides one ingestion model for SQL databases, Redis, and custom batch sinks: collect records, flush asynchronously, execute with optional retry/concurrency control, and expose metrics plus safe diagnostics.
 
-## 特性
+Chinese documentation: [README.zh-CN.md](README.zh-CN.md).
 
-- 统一 API：MySQL、PostgreSQL、SQLite、Redis 都通过 `BatchFlow + PipelineConfig` 使用。
-- 异步批处理：`Submit` 只负责入队，后台自动按 `FlushSize` / `FlushInterval` flush。
-- 扩展执行器：可以直接传入自定义 `BatchExecutor`。
-- 可选重试和限流：通过 `RetryConfig` 和 `ConcurrencyLimit` 调整执行行为。
-- 可观测性：支持 `MetricsReporter`、`PipelineMetricsReporter` 和 BatchFlow 自身的可选流程指标。
-- 生命周期完整：支持 `Close()`、`Wait()` 和 `Done()`。
+## Features
 
-## 安装
+- Unified API for MySQL, PostgreSQL, SQLite, Redis, and custom `BatchExecutor` implementations.
+- Async batching through `FlushSize` and `FlushInterval`.
+- SQL upsert controls for explicit conflict keys, update columns, and in-batch duplicate-key coalescing.
+- Generic `Coalescer` support for non-SQL and DIY data flows.
+- Retry, timeout, concurrency limit, structured error classification, and optional observability hooks.
+- Prometheus-ready metrics examples, SQL dry-run previews, and Docker integration/stress test tooling.
+- Complete lifecycle controls with `Close()`, `Wait()`, and `Done()`.
+
+## Install
 
 ```bash
 go get github.com/rushairer/batchflow/v2
 ```
 
-## 快速开始
+## Quick Start
 
 ```go
 package main
@@ -68,7 +71,9 @@ func main() {
 
 	schema := batchflow.NewSQLSchema(
 		"users",
-		batchflow.ConflictIgnoreOperationConfig,
+		batchflow.ConflictUpdateOperationConfig.
+			WithConflictColumns("id").
+			WithUpdateColumns("name", "email"),
 		"id", "name", "email",
 	)
 
@@ -90,17 +95,17 @@ func main() {
 }
 ```
 
-## 核心语义
+## Core Semantics
 
-### 生命周期
+### Lifecycle
 
-- `NewXxxBatchFlow(...)` 创建后会立即启动后台 pipeline。
-- `Submit(ctx, req)` 负责入队；如果 `ctx` 已取消或 `BatchFlow` 已关闭，会立即返回错误。
-- `Close()` 会停止接收新请求、关闭内部数据通道、触发最终 flush，并等待后台退出。
-- `Wait()` 只等待退出，不主动关闭输入。
-- `Done()` 返回后台退出时关闭的只读通道。
+- `NewXxxBatchFlow(...)` starts the background pipeline immediately.
+- `Submit(ctx, req)` only enqueues data. It returns an error when the caller context is canceled or the flow is already closed.
+- `Close()` stops accepting new records, closes the input channel, triggers the final flush, and waits for shutdown.
+- `Wait()` waits for shutdown without closing input.
+- `Done()` returns a read-only channel closed when the background pipeline exits.
 
-常见用法：
+Always call `Close()` during application shutdown:
 
 ```go
 if err := flow.Close(); err != nil {
@@ -108,118 +113,127 @@ if err := flow.Close(); err != nil {
 }
 ```
 
-```go
-go func() {
-	<-flow.Done()
-	log.Println("batchflow stopped")
-}()
+### Batching
 
-if err := flow.Wait(); err != nil {
-	return err
-}
+- The pipeline groups requests by `FlushSize` or `FlushInterval`.
+- Each flush is split by `SchemaInterface`.
+- Each schema group calls `BatchExecutor.ExecuteBatch(...)` once.
+- `ObserveBatchSize(n)` reports the size of one schema execution batch, not the whole flush input size.
+
+### Requests
+
+Use typed setters when available:
+
+```go
+req := batchflow.NewRequest(schema).
+	SetInt("retry_count", 3).
+	SetUint64("id", 42).
+	SetString("email", "alice@example.com").
+	SetBool("enabled", true)
 ```
 
-### Submit 与取消
+Other values can be set with `Set(name, value)` or `SetNull(name)`.
 
-- `Submit` 会优先检查调用方 `ctx.Err()`。
-- 若 `ctx` 已取消或超时，不会把请求放入内部队列。
-- 若 `BatchFlow` 自身生命周期已经结束，后续 `Submit` 会被拒绝。
+## SQL Update and Replace
 
-### 批处理语义
+Use explicit conflict keys for PostgreSQL/MySQL upserts:
 
-- pipeline 先按 `FlushSize` / `FlushInterval` 聚合请求。
-- 一次 flush 内部会再按 `SchemaInterface` 分组。
-- 每个 schema 组都会调用一次 `BatchExecutor.ExecuteBatch(...)`。
-- `ObserveBatchSize(n)` 的语义是“单个 schema 执行批大小”，不是“整次 flush 输入大小”。
+```go
+schema := batchflow.NewSQLSchema(
+	"users",
+	batchflow.ConflictUpdateOperationConfig.
+		WithConflictColumns("tenant_id", "user_id").
+		WithUpdateColumns("name", "email"),
+	"tenant_id", "user_id", "name", "email", "updated_at",
+)
+```
 
-### Request 赋值
+Rules:
 
-- `NewRequest(schema)` 返回可链式构建的请求对象。
-- 常用整数 setter 现在覆盖 `SetInt`、`SetInt8`、`SetInt16`、`SetInt32`、`SetInt64`、`SetUint`、`SetUint8`、`SetUint16`、`SetUint32`、`SetUint64`。
-- 其他基础类型继续使用 `SetFloat32`、`SetFloat64`、`SetString`、`SetBool`、`SetTime`、`SetBytes`、`SetNull`。
-- 遇到未封装类型时，使用 `Set(name, value)`。
+- If `ConflictColumns` is omitted, BatchFlow keeps the legacy fallback and uses the first schema column. Treat this as compatibility only.
+- `ConflictUpdate` updates non-conflict columns by default, or only `UpdateColumns` when configured.
+- PostgreSQL `ConflictReplace` means upsert overwrite with `ON CONFLICT (...) DO UPDATE SET ...`.
+- MySQL `ConflictReplace` keeps native `REPLACE INTO` semantics.
+- In-batch duplicate conflict keys are coalesced before SQL generation to avoid PostgreSQL errors such as "cannot affect row a second time".
 
-## 推荐入口
+Dry-run the final SQL before production rollout:
 
-- 业务侧优先使用：
-  - `NewMySQLBatchFlow`
-  - `NewPostgreSQLBatchFlow`
-  - `NewSQLiteBatchFlow`
-  - `NewRedisBatchFlow`
-- 需要自定义执行逻辑时使用：
-  - `NewBatchFlow(ctx, bufferSize, flushSize, flushInterval, executor)`
+```go
+preview, err := batchflow.GenerateSQLPreview(ctx, batchflow.DefaultPostgreSQLDriver, schema, rows)
+if err != nil {
+	return err
+}
+log.Printf("sql=%s fingerprint=%s args=%d input=%d output=%d dedup=%d",
+	preview.SQL,
+	preview.Fingerprint,
+	preview.ArgsCount,
+	preview.DedupStats.InputRows,
+	preview.DedupStats.OutputRows,
+	preview.DedupStats.DeduplicatedRows,
+)
+```
 
-## 指标与监控
+Do not log `preview.Args` in production unless the values are known to be safe.
 
-BatchFlow 的指标分三层：
+## Non-SQL and Custom Flows
 
-- `MetricsReporter`：执行器和核心阶段指标。
-- `PipelineMetricsReporter`：队列等待、管道处理耗时、错误通道丢弃。
-- `BatchFlowMetricsReporter`：Submit 被拒绝次数、整次 flush 输入大小、每次 flush 的 schema 组数量。
+For Redis, HTTP, document stores, queues, or any custom sink, use `PipelineConfig.Coalescer` when duplicate keys should be merged before execution:
 
-官方可直接复用的 Prometheus 示例位于：
+```go
+flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
+	BufferSize:    1000,
+	FlushSize:     100,
+	FlushInterval: 100 * time.Millisecond,
+	Coalescer:     batchflow.NewKeyCoalescer(batchflow.CoalesceKeepLast, "key"),
+})
+defer flow.Close()
+```
+
+For reusable custom sinks, implement `BatchProcessor` and optionally `OperationPreviewer`, then wrap it with `NewThrottledBatchExecutor` to reuse retry, concurrency limit, metrics, and structured logging.
+
+## Observability
+
+BatchFlow exposes three metrics layers:
+
+- `MetricsReporter`: executor and core execution metrics.
+- `PipelineMetricsReporter`: queue wait, pipeline processing latency, dropped async errors.
+- `BatchFlowMetricsReporter`: rejected submits, flush input size, schema groups per flush.
+
+Prometheus example package:
 
 ```go
 import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
 ```
 
-最小示例：
+Structured diagnostics can be configured with `ObservabilityConfig`:
 
 ```go
-pm := prommetrics.NewMetrics(prommetrics.Options{
-	Namespace:             "batchflow",
-	IncludeInstanceID:     true,
-	EnablePipelineMetrics: true,
+flow := batchflow.NewPostgreSQLBatchFlow(ctx, db, batchflow.PipelineConfig{
+	Observability: batchflow.ObservabilityConfig{
+		Logger:             logger,
+		Sampler:            batchflow.NewErrorAndSlowSampler(500 * time.Millisecond),
+		Redactor:           batchflow.DefaultRedactor(),
+		SlowBatchThreshold: 500 * time.Millisecond,
+	},
 })
-
-if err := pm.StartServer(2112); err != nil {
-	log.Fatal(err)
-}
-defer pm.StopServer(context.Background())
-
-reporter := prommetrics.NewReporter(pm, "mysql", "order_writer")
-
-flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:       1000,
-	FlushSize:        200,
-	FlushInterval:    100 * time.Millisecond,
-	MetricsReporter:  reporter,
-	ConcurrencyLimit: 8,
-})
-defer flow.Close()
 ```
 
-主要指标口径：
+Built-in error classification recognizes structured PostgreSQL SQLSTATE, MySQL error numbers, Redis errors, context cancellation, timeouts, and connection classes. Custom backends can register classifiers with `RegisterErrorClassifier`.
 
-- `enqueue_latency_seconds`：Submit 到成功入队的耗时。
-- `pipeline_dequeue_latency_seconds`：请求成功入队后，到 flush 开始处理前的等待时间。
-- `batch_assemble_duration_seconds`：单个 schema 组装成执行输入的耗时。
-- `execute_duration_seconds`：单个 schema 执行批的总耗时。
-- `batch_size`：单个 schema 执行批大小。
-- `pipeline_flush_size`：整次 flush 收到的请求数。
-- `schema_groups_per_flush`：整次 flush 内拆出的 schema 组数量。
-- `submit_rejected_total`：Submit 被拒绝的次数和原因。
+## Documentation
 
-## 文档
+- [Documentation index](docs/index.md)
+- [API reference](docs/api/reference.md)
+- [Configuration](docs/api/configuration.md)
+- [Examples](docs/guides/examples.md)
+- [Production guide](docs/guides/production.md)
+- [Testing guide](docs/guides/testing.md)
+- [Error classification](docs/guides/error-classification.md)
+- [Monitoring quickstart](docs/guides/monitoring-quickstart.md)
+- [Metrics specification](docs/guides/metrics-spec.md)
+- [v2 migration guide](docs/development/migration-v2.md)
 
-- [文档索引](docs/index.md)
-- [API 参考](docs/api/reference.md)
-- [配置说明](docs/api/configuration.md)
-- [使用示例](docs/guides/examples.md)
-- [生产指南](docs/guides/production.md)
-- [监控快速上手](docs/guides/monitoring-quickstart.md)
-- [监控指南](docs/guides/monitoring.md)
-- [Metrics 规格](docs/guides/metrics-spec.md)
-- [自定义 MetricsReporter](docs/guides/custom-metrics-reporter.md)
-- [go-pipeline 指标接入说明](docs/guides/go-pipeline-metrics.md)
-
-## 社区与安全
-
-- [贡献指南](CONTRIBUTING.md)
-- [行为准则](CODE_OF_CONDUCT.md)
-- [安全策略](SECURITY.md)
-
-## 开发
+## Development
 
 ```bash
 make fmt
@@ -228,7 +242,22 @@ make lint
 make docs-check
 ```
 
-## 当前推荐理解
+Docker stress tests:
 
-- README、`docs/api/reference.md` 和 `docs/guides/metrics-spec.md` 是当前对外契约的主入口。
-- `test/integration` 下的代码主要服务于集成测试和仪表盘验证，不作为业务侧首选接入示例。
+```bash
+make docker-postgres-test
+make docker-mysql-test
+make docker-redis-test
+```
+
+Generate a stress report:
+
+```bash
+./scripts/run_stress_report.sh
+```
+
+## Community and Security
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)

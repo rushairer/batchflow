@@ -1,18 +1,20 @@
-# BatchFlow 测试指南
+# Testing Guide
 
-## 本地快速验证
+## Local Checks
 
 ```bash
 go test ./...
-go test -run '^$' ./...   # 只做全仓编译检查
+go test -run '^$' ./...
 make docs-check
 ```
 
-## CI 分层
+Use compile-only checks after documentation or example changes, then run the full unit suite before committing.
 
-### PR / main 快速 CI
+## CI Layers
 
-`.github/workflows/ci.yml` 只运行必须稳定、可快速反馈的检查：
+### Pull Request and Main CI
+
+`.github/workflows/ci.yml` runs fast, stable checks:
 
 - `gofmt -s -l .`
 - `git diff --check`
@@ -24,61 +26,93 @@ make docs-check
 - `make cover`
 - `go test -race .`
 
-这个层级用于阻止格式、静态检查、文档一致性、编译、单元测试、覆盖率生成和核心并发语义回归。覆盖率报告作为趋势证据上传，不在 PR 阶段设置过高硬门槛。
+This layer catches formatting, static analysis, documentation drift, compile failures, unit regressions, coverage generation issues, and core concurrency regressions.
 
-### Nightly / manual 长耗时测试
+### Nightly and Manual Long-Running Tests
 
-`.github/workflows/nightly.yml` 承担 Docker 数据库、长时间压测和性能趋势类验证。MySQL、PostgreSQL、Redis 的 nightly 结果是 gating；失败应触发调查。SQLite stress 是 non-gating，因为高并发写入失败属于已文档化的 SQLite 架构限制，但报告仍会上传用于趋势分析。
+`.github/workflows/nightly.yml` covers Docker databases, long-running stress tests, and performance trend checks. MySQL, PostgreSQL, and Redis results are gating. SQLite stress is non-gating because high-concurrency write failures are a documented SQLite limitation, but the report is still useful for trend analysis.
 
-### Release 验证
+### Release Validation
 
-发布前应在快速 CI 通过后，再运行数据库集成测试、性能基准、安全扫描和文档发布检查。SQL 写入语义、观测事件、错误分类、重试策略这类跨模块改动必须至少覆盖单元测试和对应数据库的 Docker 真机测试。
+Before a release:
 
-## 推荐测试分层
+- Run fast CI locally or verify the latest CI run.
+- Run Docker integration/stress tests for target backends.
+- Review SQL update/replace behavior with `GenerateSQLPreview`.
+- Run security scanning when dependencies or execution boundaries changed.
+- Check generated reports for throughput, integrity, error rate, memory, and GC regressions.
 
-### 1. 契约测试
+## Recommended Test Layers
 
-重点覆盖：
+### Contract Tests
 
-- `Submit` 的取消语义
-- `Close()` 最终 flush 语义
-- `Wait()` / `Done()` 生命周期语义
-- 生命周期示例的可编译性（例如 `ExampleBatchFlow_Close`、`ExampleBatchFlow_Done`）
-- `Schema` 校验和 `Request.Validate()`
-- `NewRequest` typed setter 的列值保真
-- 重试分类与错误标签
+Cover:
 
-### 2. 执行器测试
+- `Submit` cancellation semantics.
+- `Close()` final flush behavior.
+- `Wait()` and `Done()` lifecycle behavior.
+- `Schema` validation and `Request.Validate()`.
+- Typed setters such as `SetInt`, `SetUint64`, `SetBool`, and `SetNull`.
+- Retry classification and low-cardinality error labels.
 
-重点覆盖：
+### Executor Tests
 
-- SQL Driver 生成逻辑
-- Redis command 生成逻辑
-- `WithConcurrencyLimit(...)`
-- `WithRetryConfig(...)`
-- Metrics 回调是否在正确阶段触发
+Cover:
 
-### 3. 集成测试
+- SQL driver generation.
+- PostgreSQL/MySQL update and replace conflict-column behavior.
+- Redis command generation.
+- `WithConcurrencyLimit(...)`.
+- `WithRetryConfig(...)`.
+- Metrics callback stages.
 
-重点覆盖：
+### Integration Tests
 
-- MySQL / PostgreSQL / SQLite / Redis 端到端写入
-- 高吞吐压测
-- Grafana / Prometheus 面板验证
+Cover:
 
-## 新增功能时最低要求
+- MySQL, PostgreSQL, SQLite, and Redis end-to-end writes.
+- Duplicate-key batches for PostgreSQL/MySQL update/replace.
+- Throughput stress and data integrity.
+- Prometheus/Grafana dashboard behavior when monitoring is enabled.
 
-- 改公开 API：补单元测试和文档。
-- 改 metrics 语义：补 `metrics-spec.md` 和至少一个 reporter 测试。
-- 改 lifecycle：补 `Close/Wait/Done` 相关测试。
-- 改示例：跑 `go test -run '^$' ./...`，确保仓库可编译。
-- 改依赖、安全边界或日志字段：跑 `govulncheck ./...`，并确认不会暴露敏感数据。
+## Minimum Bar for New Changes
 
-## 为什么强调 docs-check
+- Public API change: update unit tests and documentation.
+- SQL generation change: add SQL driver tests plus at least one Docker test for the affected backend.
+- Metrics semantic change: update `metrics-spec.md` and reporter tests.
+- Lifecycle change: update `Close`, `Wait`, or `Done` tests.
+- Example change: run `go test -run '^$' ./...`.
+- Dependency, security, or logging boundary change: run `govulncheck ./...` when available and confirm sensitive data is not logged.
 
-这个仓库之前的主要问题之一是“实现变了，文档和示例没跟上”。所以现在除了 `go test`，还建议把 `make docs-check` 当成常规验证的一部分。
+## Documentation Consistency
 
-## 集成测试入口
+Run:
 
-- [集成测试文档](integration-tests.md)
+```bash
+make docs-check
+```
+
+The check blocks stale import paths, old metric names, missing lifecycle contracts, missing v2 installation commands, and missing references to critical public APIs such as `GenerateSQLPreview`, `RegisterErrorClassifier`, `ConflictColumns`, and `Coalescer`.
+
+## Docker Stress Tests
+
+Backend-specific targets:
+
+```bash
+make docker-postgres-test
+make docker-mysql-test
+make docker-redis-test
+```
+
+Generate a consolidated local report:
+
+```bash
+./scripts/run_stress_report.sh
+```
+
+Default stress scope is PostgreSQL, MySQL, and Redis. Use `--include-sqlite` only when you explicitly want SQLite trend data; SQLite is not a gating high-concurrency backend.
+
+## Integration Test Entrypoints
+
+- [Integration test guide](integration-tests.md)
 - `test/integration`

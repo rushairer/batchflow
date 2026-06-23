@@ -1,6 +1,6 @@
-# BatchFlow 使用示例
+# Examples
 
-本文档只保留当前仓库已经验证过的推荐写法。
+This guide keeps examples aligned with compiled repository code and the `github.com/rushairer/batchflow/v2` module path.
 
 ## MySQL
 
@@ -21,7 +21,9 @@ defer flow.Close()
 
 schema := batchflow.NewSQLSchema(
 	"users",
-	batchflow.ConflictIgnoreOperationConfig,
+	batchflow.ConflictUpdateOperationConfig.
+		WithConflictColumns("id").
+		WithUpdateColumns("name", "email"),
 	"id", "name", "email",
 )
 
@@ -37,26 +39,9 @@ for i := 0; i < 1000; i++ {
 }
 ```
 
-## PostgreSQL
+## PostgreSQL Upsert Update
 
-```go
-db, err := sql.Open("postgres", dsn)
-if err != nil {
-	return err
-}
-defer db.Close()
-
-flow := batchflow.NewPostgreSQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:    2000,
-	FlushSize:     200,
-	FlushInterval: 100 * time.Millisecond,
-})
-defer flow.Close()
-```
-
-### PostgreSQL Upsert Update
-
-PostgreSQL 推荐显式声明冲突键。`ConflictUpdate` 默认只更新非冲突列；如果只想更新部分列，使用 `WithUpdateColumns`。
+PostgreSQL code should declare conflict keys explicitly. `ConflictUpdate` updates non-conflict columns by default; `WithUpdateColumns` narrows the update list.
 
 ```go
 schema := batchflow.NewSQLSchema(
@@ -78,16 +63,16 @@ if err := flow.Submit(ctx, req); err != nil {
 }
 ```
 
-生成语义：
+Generated semantics:
 
 ```sql
 INSERT INTO users (...) VALUES (...)
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email
 ```
 
-### PostgreSQL Upsert Replace
+## PostgreSQL Upsert Replace
 
-PostgreSQL 没有 MySQL `REPLACE INTO` 的 delete+insert 语义。这里的 `ConflictReplace` 采用 Hologres 风格：主键冲突时覆盖所有非冲突列。
+PostgreSQL does not have MySQL `REPLACE INTO` delete-plus-insert semantics. BatchFlow defines `ConflictReplace` as upsert overwrite: update all non-conflict columns on conflict.
 
 ```go
 schema := batchflow.NewSQLSchema(
@@ -97,16 +82,16 @@ schema := batchflow.NewSQLSchema(
 )
 ```
 
-生成语义：
+Generated semantics:
 
 ```sql
 INSERT INTO users (...) VALUES (...)
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, updated_at = EXCLUDED.updated_at
 ```
 
-同一批次内如果出现重复冲突键，BatchFlow 会先在客户端合并，避免 PostgreSQL 一次 upsert 影响同一行多次。
+Duplicate conflict keys inside one batch are coalesced before SQL generation, avoiding PostgreSQL "cannot affect row a second time" failures.
 
-### PostgreSQL 复合冲突键
+## PostgreSQL Composite Conflict Keys
 
 ```go
 schema := batchflow.NewSQLSchema(
@@ -117,15 +102,15 @@ schema := batchflow.NewSQLSchema(
 )
 ```
 
-生成语义：
+Generated semantics:
 
 ```sql
 ON CONFLICT (tenant_id, user_id) DO UPDATE SET display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url
 ```
 
-## MySQL Upsert Update / Replace
+## MySQL Update and Replace
 
-MySQL `ConflictUpdate` 使用 `ON DUPLICATE KEY UPDATE`，默认更新所有非冲突列；显式配置 `WithConflictColumns` 可以避免更新主键列。
+MySQL `ConflictUpdate` uses `ON DUPLICATE KEY UPDATE`. Configure `ConflictColumns` so primary or unique key columns are not updated accidentally.
 
 ```go
 schema := batchflow.NewSQLSchema(
@@ -137,14 +122,14 @@ schema := batchflow.NewSQLSchema(
 )
 ```
 
-生成语义：
+Generated semantics:
 
 ```sql
 INSERT INTO users (...) VALUES (...)
 ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email)
 ```
 
-MySQL `ConflictReplace` 保持数据库原生 `REPLACE INTO` 语义：
+MySQL `ConflictReplace` keeps native `REPLACE INTO` behavior:
 
 ```go
 schema := batchflow.NewSQLSchema(
@@ -154,25 +139,24 @@ schema := batchflow.NewSQLSchema(
 )
 ```
 
-```sql
-REPLACE INTO users (...) VALUES (...)
-```
-
-## SQLite
+## SQL Dry Run
 
 ```go
-db, err := sql.Open("sqlite3", "./test.db")
+preview, err := batchflow.GenerateSQLPreview(ctx, batchflow.DefaultPostgreSQLDriver, schema, rows)
 if err != nil {
 	return err
 }
-defer db.Close()
 
-flow := batchflow.NewSQLiteBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:    1000,
-	FlushSize:     100,
-	FlushInterval: 200 * time.Millisecond,
-})
-defer flow.Close()
+log.Printf("table=%s fingerprint=%s args=%d conflict=%v update=%v input=%d output=%d dedup=%d",
+	preview.Table,
+	preview.Fingerprint,
+	preview.ArgsCount,
+	preview.ConflictColumns,
+	preview.UpdateColumns,
+	preview.DedupStats.InputRows,
+	preview.DedupStats.OutputRows,
+	preview.DedupStats.DeduplicatedRows,
+)
 ```
 
 ## Redis
@@ -201,30 +185,9 @@ if err := flow.Submit(ctx, req); err != nil {
 }
 ```
 
-## 自定义执行器
+## Non-SQL Coalescing
 
-```go
-type MyExecutor struct{}
-
-func (e *MyExecutor) ExecuteBatch(ctx context.Context, schema batchflow.SchemaInterface, data []map[string]any) error {
-	// 自定义执行逻辑
-	return nil
-}
-
-flow := batchflow.NewBatchFlow(ctx, 1000, 100, 100*time.Millisecond, &MyExecutor{})
-defer flow.Close()
-```
-
-如果希望复用限流、重试、operation metrics 和结构化日志，推荐实现 `BatchProcessor`，并额外实现 `OperationPreviewer` 提供安全 dry-run 信息。
-
-可编译示例：
-
-- [HTTP batch processor](../../examples/custom/http_processor_example_test.go)
-- [Bulk write processor](../../examples/custom/bulk_write_processor_example_test.go)
-
-## 非 SQL 批内合并
-
-Redis、HTTP、MongoDB 等非 SQL 后端可以通过 `PipelineConfig.Coalescer` 显式启用同批次同 key 合并：
+Redis, HTTP, MongoDB, queue, and custom API backends can explicitly enable duplicate-key handling through `PipelineConfig.Coalescer`:
 
 ```go
 flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
@@ -236,9 +199,37 @@ flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
 defer flow.Close()
 ```
 
-SQL update/replace 不需要在 `PipelineConfig` 再配 coalescer；SQL 默认根据 `SQLOperationConfig.ConflictColumns` 执行 conflict-key 合并，并在 SQL dry-run 里输出 dedup 统计。
+Available strategies:
 
-## 带重试和限流
+- `CoalesceKeepFirst`: keep the first record for a key.
+- `CoalesceKeepLast`: keep the last record for a key.
+- `CoalesceMergePresentFields`: merge fields that are present in later records.
+
+SQL update/replace does not need `PipelineConfig.Coalescer`; SQL conflict strategies use `SQLOperationConfig.ConflictColumns` and report deduplication through `GenerateSQLPreview`.
+
+## Custom Executor
+
+```go
+type MyExecutor struct{}
+
+func (e *MyExecutor) ExecuteBatch(ctx context.Context, schema batchflow.SchemaInterface, data []map[string]any) error {
+	return nil
+}
+
+flow := batchflow.NewBatchFlow(ctx, 1000, 100, 100*time.Millisecond, &MyExecutor{})
+defer flow.Close()
+```
+
+For reusable custom backends, implement `BatchProcessor`, optionally implement `OperationPreviewer`, and wrap it with `NewThrottledBatchExecutor`.
+
+Compiled examples:
+
+- [HTTP batch processor](../../examples/custom/http_processor_example_test.go)
+- [Bulk write processor](../../examples/custom/bulk_write_processor_example_test.go)
+- [SQL preview](../../examples/sql/upsert_preview_example_test.go)
+- [Redis coalescing](../../examples/redis/coalescer_example_test.go)
+
+## Retry and Concurrency Limit
 
 ```go
 flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
@@ -256,7 +247,7 @@ flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
 defer flow.Close()
 ```
 
-## 指标接入
+## Metrics
 
 ```go
 import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
@@ -283,7 +274,7 @@ flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
 defer flow.Close()
 ```
 
-## 错误消费
+## Async Errors
 
 ```go
 errs := flow.ErrorChan(64)
@@ -294,7 +285,7 @@ go func() {
 }()
 ```
 
-## 生命周期收尾
+## Shutdown
 
 ```go
 if err := flow.Close(); err != nil {
@@ -302,34 +293,4 @@ if err := flow.Close(); err != nil {
 }
 ```
 
-## Wait / Done
-
-```go
-go func() {
-	<-flow.Done()
-	log.Println("batchflow stopped")
-}()
-
-if err := flow.Wait(); err != nil {
-	return err
-}
-```
-
-适合“提交方”和“关闭方”不在同一个 goroutine 的场景。
-
-## Request 基础类型 setter
-
-```go
-req := batchflow.NewRequest(schema).
-	SetInt("retry_count", 3).
-	SetUint64("id", 42).
-	SetUint8("shard", 7).
-	SetBool("enabled", true)
-```
-
-说明：
-
-- 业务代码推荐始终调用 `Close()`，不要只依赖 `FlushInterval` 自然触发。
-- 如果你只是等待退出而不关闭输入，请用 `Wait()`。
-- `Done()` 适合做退出通知，不负责触发收尾。
-- 基础整数类型优先使用对应的 `SetInt...` / `SetUint...` 便捷方法；其他类型继续用 `Set(...)` 或现有 typed setter。
+Use `Wait()` when another owner closes input. Use `Done()` as a shutdown notification channel.

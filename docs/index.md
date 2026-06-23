@@ -1,37 +1,45 @@
-# BatchFlow 文档索引
+# BatchFlow Documentation
 
-当前建议把文档分成三层阅读：
+BatchFlow documentation uses English as the canonical public documentation. Chinese mirrors are available under [docs/zh-CN](zh-CN/index.md).
 
-1. 先看 [README](../README.md)，确认推荐用法和生命周期。
-2. 再看 [API 参考](api/reference.md) 与 [配置说明](api/configuration.md)，确认公开契约。
-3. 接着根据需要进入监控、测试和架构文档。
+Recommended reading path:
 
-## 面向使用者
+1. Start with the [README](../README.md) for installation, lifecycle, and the high-level model.
+2. Use [API reference](api/reference.md) and [configuration](api/configuration.md) for public contracts.
+3. Read the production, monitoring, testing, and architecture guides as needed.
+
+## Users
 
 - [README](../README.md)
-- [API 参考](api/reference.md)
-- [配置说明](api/configuration.md)
-- [使用示例](guides/examples.md)
-- [生产指南](guides/production.md)
-- [监控快速上手](guides/monitoring-quickstart.md)
-- [监控指南](guides/monitoring.md)
-- [Metrics 规格](guides/metrics-spec.md)
-- [自定义 MetricsReporter](guides/custom-metrics-reporter.md)
-- [错误分类](guides/error-classification.md)
+- [API reference](api/reference.md)
+- [Configuration](api/configuration.md)
+- [Examples](guides/examples.md)
+- [Production guide](guides/production.md)
+- [Testing guide](guides/testing.md)
+- [Troubleshooting](guides/troubleshooting.md)
+- [Error classification](guides/error-classification.md)
+- [Executor capabilities](guides/executor-capabilities.md)
+- [Monitoring quickstart](guides/monitoring-quickstart.md)
+- [Monitoring guide](guides/monitoring.md)
+- [Metrics specification](guides/metrics-spec.md)
+- [Custom MetricsReporter](guides/custom-metrics-reporter.md)
 
-## 面向维护者
+## Maintainers
 
-- [架构设计](development/architecture.md)
-- [API 稳定性策略](development/api-stability.md)
-- [v2 迁移指南](development/migration-v2.md)
-- [贡献指南](development/contributing.md)
-- [测试指南](guides/testing.md)
-- [集成测试](guides/integration-tests.md)
-- [go-pipeline 指标接入说明](guides/go-pipeline-metrics.md)
-- [变更记录](development/changelog.md)
+- [Architecture](development/architecture.md)
+- [API stability policy](development/api-stability.md)
+- [v2 migration guide](development/migration-v2.md)
+- [Contributing](development/contributing.md)
+- [Integration tests](guides/integration-tests.md)
+- [go-pipeline metrics integration](guides/go-pipeline-metrics.md)
+- [Quality guide](development/quality.md)
+- [Release process](development/release.md)
+- [Changelog](development/changelog.md)
 
-## 当前文档约定
+## Documentation Rules
 
-- `README`、`docs/api/reference.md`、`docs/guides/production.md`、`docs/guides/metrics-spec.md` 是一线契约文档。
-- 示例代码以仓库内真实 API 为准，不再使用历史包路径或过期签名。
-- `test/integration` 文档主要描述测试和仪表盘，不再承担业务接入文档角色。
+- `README.md`, `docs/api/reference.md`, `docs/api/configuration.md`, `docs/guides/production.md`, and `docs/guides/metrics-spec.md` are the primary public contracts.
+- Examples must compile against `github.com/rushairer/batchflow/v2`.
+- SQL update/replace examples must use explicit `ConflictColumns`.
+- Non-SQL duplicate-key behavior must use `PipelineConfig.Coalescer`.
+- Historical performance notes under `docs/reports` are archive material, not the current public contract.
