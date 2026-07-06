@@ -1,13 +1,13 @@
-# BatchFlow V2 Production Tuning Guide
+# BatchFlow v2 Production Tuning Guide
 
-This guide defines the recommended defaults for the stable `github.com/rushairer/batchflow/v2` runtime.
+This guide defines the recommended defaults for the stable `github.com/rushairer/batchflow/v2` runtime. Versioning lives in the module path and release tag, not in public type or function names.
 
 ## Recommended defaults
 
 ### General SQL batch writes
 
 ```go
-cfg := batchflow.DefaultV2Config(executor)
+cfg := batchflow.DefaultConfig(executor)
 cfg.Pipeline.BatchSize = 1000
 cfg.Pipeline.FlushInterval = 50 * time.Millisecond
 cfg.Pipeline.BufferSize = 10000
@@ -26,12 +26,14 @@ cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
     Mode: batchflow.BackpressureTimeout,
     Timeout: 500 * time.Millisecond,
 }
+
+flow, err := batchflow.New(ctx, cfg)
 ```
 
 ### Hologres / PostgreSQL COPY path
 
 ```go
-cfg := batchflow.DefaultV2Config(copyExecutor)
+cfg := batchflow.DefaultConfig(copyExecutor)
 cfg.Pipeline.BatchSize = 5000
 cfg.Pipeline.FlushInterval = 20 * time.Millisecond
 cfg.Pipeline.BufferSize = 50000
@@ -50,11 +52,14 @@ cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
     Mode: batchflow.BackpressureTimeout,
     Timeout: 1 * time.Second,
 }
+
+flow, err := batchflow.New(ctx, cfg)
 ```
 
 ### Low-latency online writes
 
 ```go
+cfg := batchflow.DefaultConfig(executor)
 cfg.Pipeline.BatchSize = 100
 cfg.Pipeline.FlushInterval = 10 * time.Millisecond
 cfg.Pipeline.BufferSize = 5000
@@ -70,6 +75,8 @@ cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
     AvgRequestBytes: 512,
     Mode: batchflow.BackpressureReject,
 }
+
+flow, err := batchflow.New(ctx, cfg)
 ```
 
 ## Shard count
