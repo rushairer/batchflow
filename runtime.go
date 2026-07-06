@@ -48,11 +48,11 @@ func (c BackpressureConfig) withDefaults() BackpressureConfig {
 	return c
 }
 
-// RuntimeConfig contains the v3-style runtime concerns that are intentionally
-// separated from database driver and executor configuration.
+// RuntimeConfig contains runtime concerns that are intentionally separated from
+// database driver and executor configuration.
 type RuntimeConfig struct {
-	ShardCount  uint32
-	Routing     ShardRoutingPolicy
+	ShardCount   uint32
+	Routing      ShardRoutingPolicy
 	ShardKeyFunc ShardKeyFunc
 	Backpressure BackpressureConfig
 }
@@ -69,18 +69,27 @@ func (c RuntimeConfig) withDefaults() RuntimeConfig {
 	return c
 }
 
-// V3Config is a stable, explicit constructor surface for the converged runtime.
-// It is additive and keeps the v2 module path/API compatible during migration.
-type V3Config struct {
+// V2Config is the stable, explicit constructor surface for the converged v2 runtime.
+// The module path remains github.com/rushairer/batchflow/v2.
+type V2Config struct {
 	Pipeline PipelineConfig
 	Runtime  RuntimeConfig
 	Executor BatchExecutor
 }
 
-func DefaultV3Config(executor BatchExecutor) V3Config {
-	return V3Config{
+func DefaultV2Config(executor BatchExecutor) V2Config {
+	return V2Config{
 		Pipeline: DefaultPipelineConfig(),
 		Runtime:  DefaultRuntimeConfig(),
 		Executor: executor,
 	}
+}
+
+// V3Config is kept as a compatibility alias from the pre-release convergence branch.
+// Deprecated: use V2Config.
+type V3Config = V2Config
+
+// Deprecated: use DefaultV2Config.
+func DefaultV3Config(executor BatchExecutor) V3Config {
+	return DefaultV2Config(executor)
 }
