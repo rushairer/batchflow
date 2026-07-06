@@ -23,4 +23,7 @@ var (
 
 	// ErrEmptySchemaName 空表名错误
 	ErrEmptySchemaName = errors.New("empty schema name")
+
+	// ErrBackpressure 表示队列达到反压阈值且策略拒绝或等待超时
+	ErrBackpressure = errors.New("batchflow backpressure limit reached")
 )
