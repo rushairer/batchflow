@@ -8,31 +8,6 @@ import (
 
 var ErrMemoryLimitExceeded = errors.New("batchflow memory limit exceeded")
 
-// MemoryLimitConfig guards the runtime against unbounded queued-memory growth.
-// It is intentionally estimation-based: the hot path should not walk every
-// queued request or allocate just to measure memory.
-type MemoryLimitConfig struct {
-	Enabled         bool
-	MaxQueueBytes   int64
-	AvgRequestBytes int64
-	Mode            BackpressureMode
-	CheckInterval   time.Duration
-	Timeout         time.Duration
-}
-
-func (c MemoryLimitConfig) withDefaults() MemoryLimitConfig {
-	if c.AvgRequestBytes <= 0 {
-		c.AvgRequestBytes = 512
-	}
-	if c.CheckInterval <= 0 {
-		c.CheckInterval = time.Millisecond
-	}
-	if c.Timeout <= 0 {
-		c.Timeout = time.Second
-	}
-	return c
-}
-
 func (e *RuntimeEngine) waitMemoryLimit(ctx context.Context) error {
 	limit := e.cfg.MemoryLimit.withDefaults()
 	if !limit.Enabled || limit.MaxQueueBytes <= 0 {
