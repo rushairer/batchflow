@@ -1,6 +1,15 @@
 # BatchFlow v2 Production Tuning Guide
 
-This guide defines the recommended defaults for the stable `github.com/rushairer/batchflow/v2` runtime. Versioning lives in the module path and release tag, not in public type or function names.
+This guide defines recommended defaults for `github.com/rushairer/batchflow/v2` RC2.
+
+The recommended runtime entrypoint is:
+
+```go
+cfg := batchflow.DefaultConfig(executor)
+flow, err := batchflow.New(ctx, cfg)
+```
+
+Versioning lives in the module path and release tag, not in public API prefixes.
 
 ## Recommended defaults
 
@@ -8,7 +17,7 @@ This guide defines the recommended defaults for the stable `github.com/rushairer
 
 ```go
 cfg := batchflow.DefaultConfig(executor)
-cfg.Pipeline.BatchSize = 1000
+cfg.Pipeline.FlushSize = 1000
 cfg.Pipeline.FlushInterval = 50 * time.Millisecond
 cfg.Pipeline.BufferSize = 10000
 cfg.Runtime.ShardCount = 4
@@ -26,15 +35,13 @@ cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
     Mode: batchflow.BackpressureTimeout,
     Timeout: 500 * time.Millisecond,
 }
-
-flow, err := batchflow.New(ctx, cfg)
 ```
 
 ### Hologres / PostgreSQL COPY path
 
 ```go
 cfg := batchflow.DefaultConfig(copyExecutor)
-cfg.Pipeline.BatchSize = 5000
+cfg.Pipeline.FlushSize = 5000
 cfg.Pipeline.FlushInterval = 20 * time.Millisecond
 cfg.Pipeline.BufferSize = 50000
 cfg.Runtime.ShardCount = 8
@@ -52,15 +59,13 @@ cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
     Mode: batchflow.BackpressureTimeout,
     Timeout: 1 * time.Second,
 }
-
-flow, err := batchflow.New(ctx, cfg)
 ```
 
 ### Low-latency online writes
 
 ```go
 cfg := batchflow.DefaultConfig(executor)
-cfg.Pipeline.BatchSize = 100
+cfg.Pipeline.FlushSize = 100
 cfg.Pipeline.FlushInterval = 10 * time.Millisecond
 cfg.Pipeline.BufferSize = 5000
 cfg.Runtime.ShardCount = 2
@@ -75,8 +80,6 @@ cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
     AvgRequestBytes: 512,
     Mode: batchflow.BackpressureReject,
 }
-
-flow, err := batchflow.New(ctx, cfg)
 ```
 
 ## Shard count
@@ -137,4 +140,9 @@ Run also:
 go test ./... -race
 ```
 
-before tagging the stable v2 release.
+Before tagging the stable v2 release, validate the optional pgx adapter too:
+
+```bash
+cd adapters/pgxcopy
+go test ./...
+```
