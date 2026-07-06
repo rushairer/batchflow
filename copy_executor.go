@@ -10,15 +10,12 @@ import (
 var ErrCopyFromUnsupportedOperation = errors.New("copy from supports append-only SQL schemas only")
 
 // CopyFromClient is the minimal adapter surface required by CopyFromExecutor.
-// It intentionally avoids importing pgx in the root module. A pgxpool.Pool can
-// be adapted with a small wrapper that calls pgx.CopyFromRows(rows).
+// It intentionally avoids importing pgx in the root module.
 type CopyFromClient interface {
 	CopyFrom(ctx context.Context, table string, columns []string, rows [][]any) (int64, error)
 }
 
-// CopyFromExecutor is a zero-SQL-generation backend for append-only database
-// ingestion. It is designed for Hologres/PostgreSQL COPY FROM fast paths while
-// keeping the core module free from mandatory pgx dependencies.
+// CopyFromExecutor is a zero-SQL-generation backend for append-only ingestion.
 type CopyFromExecutor struct {
 	client  CopyFromClient
 	timeout time.Duration
@@ -45,6 +42,7 @@ func (e *CopyFromExecutor) ExecuteBatch(ctx context.Context, schema SchemaInterf
 	if err := validateCopyFromSchema(schema); err != nil {
 		return err
 	}
+
 	if e.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, e.timeout)
@@ -55,7 +53,15 @@ func (e *CopyFromExecutor) ExecuteBatch(ctx context.Context, schema SchemaInterf
 	}
 
 	columns := schema.Columns()
-	rows := buildCopyRows(ctx, columns, data)
+
+	buf, err := acquireCopyRows(ctx, columns, data)
+	if err != nil {
+		return err
+	}
+	defer releaseCopyRows(buf)
+
+	rows := buf.rows
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -87,19 +93,4 @@ func validateCopyFromSchema(schema SchemaInterface) error {
 		}
 	}
 	return nil
-}
-
-func buildCopyRows(ctx context.Context, columns []string, data []map[string]any) [][]any {
-	rows := make([][]any, len(data))
-	for i, row := range data {
-		if i&1023 == 0 && ctx.Err() != nil {
-			return rows[:i]
-		}
-		values := make([]any, len(columns))
-		for j, col := range columns {
-			values[j] = row[col]
-		}
-		rows[i] = values
-	}
-	return rows
 }
