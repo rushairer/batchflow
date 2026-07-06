@@ -80,11 +80,51 @@ const (
 )
 ```
 
-- `ShardRoutingHash`: keeps the same conflict/routing key on the same shard.
-- `ShardRoutingRoundRobin`: spreads writes evenly when key affinity is not needed.
-- `ShardRoutingLeastLoaded`: picks the shard with the shortest queue.
+Choose routing based on whether records need key affinity:
 
-Use `ShardKeyFunc` when the default key is not aligned with your business key.
+| Policy | Use when | Watch out for |
+| --- | --- | --- |
+| `ShardRoutingHash` | Upsert/update flows where the same business/conflict key should stay on the same shard for ordering, coalescing, or hot-key isolation. | For `SQLSchema`, the default hash key is derived from `schema.Name()` plus configured conflict columns. If an append-only SQL schema has no conflict columns, the effective key may collapse to only the schema name, so all records for that schema can land on one shard. Increasing `ShardCount` will not improve throughput in that case. |
+| `ShardRoutingRoundRobin` | Append-only ingest, Redis SET-like writes, COPY-like ingest, logs, events, metrics, or any workload that does not need key affinity. | Records with the same business key can be processed on different shards, so do not use it when per-key ordering or per-key coalescing matters. |
+| `ShardRoutingLeastLoaded` | No key affinity is required and shard queues can become uneven because some shards are slower or downstream latency is skewed. | Routing can move the same business key across shards. It is load-sensitive, not key-stable. Avoid it for ordered or conflict-key-sensitive writes. |
+
+Recommended starting points:
+
+- Append-only SQL inserts without conflict columns, Redis SET, logs, events, metrics, and COPY-like ingest: use `ShardRoutingRoundRobin`, or provide `ShardKeyFunc` when you have a natural distribution key.
+- Upsert/update/replace flows that require same-key ordering or deduplication: use `ShardRoutingHash`, and explicitly configure `ConflictColumns` or `ShardKeyFunc`.
+- Uneven shard load without key affinity requirements: consider `ShardRoutingLeastLoaded`.
+
+Example for append-only ingest:
+
+```go
+cfg.Runtime.ShardCount = 8
+cfg.Runtime.Routing = batchflow.ShardRoutingRoundRobin
+```
+
+Example for SQL upsert with conflict-key affinity:
+
+```go
+schema := batchflow.NewSQLSchema(
+    "users",
+    batchflow.ConflictUpdateOperationConfig.
+        WithConflictColumns("tenant_id", "user_id"),
+    "tenant_id", "user_id", "name", "email",
+)
+
+cfg.Runtime.ShardCount = 4
+cfg.Runtime.Routing = batchflow.ShardRoutingHash
+```
+
+Use `ShardKeyFunc` when the default key is not the business routing key. Typical keys include `record_key`, `tenant_id`, `user_id`, device ID, account ID, or a composite key.
+
+```go
+cfg.Runtime.ShardKeyFunc = func(req *batchflow.Request) uint64 {
+    cols := req.Columns()
+    return hashTenantUser(cols["tenant_id"], cols["user_id"])
+}
+```
+
+`ShardKeyFunc` should return a stable hash value. Keep it fast and avoid reading external state in the submit hot path.
 
 ## BackpressureConfig
 
@@ -266,6 +306,7 @@ cfg.Pipeline.BufferSize = 10000
 cfg.Pipeline.FlushSize = 1000
 cfg.Pipeline.FlushInterval = 50 * time.Millisecond
 cfg.Runtime.ShardCount = 4
+// Choose Routing based on key affinity. Use Hash for explicit conflict-key affinity; use RoundRobin for append-only inserts.
 ```
 
 COPY FROM / Hologres:
@@ -275,6 +316,7 @@ cfg.Pipeline.BufferSize = 50000
 cfg.Pipeline.FlushSize = 5000
 cfg.Pipeline.FlushInterval = 20 * time.Millisecond
 cfg.Runtime.ShardCount = 8
+cfg.Runtime.Routing = batchflow.ShardRoutingRoundRobin
 ```
 
 Low latency:
@@ -284,6 +326,7 @@ cfg.Pipeline.BufferSize = 5000
 cfg.Pipeline.FlushSize = 100
 cfg.Pipeline.FlushInterval = 10 * time.Millisecond
 cfg.Runtime.ShardCount = 2
+// Use Hash only when same-key ordering matters; otherwise prefer RoundRobin or LeastLoaded.
 ```
 
 ## Shutdown
