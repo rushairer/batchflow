@@ -15,7 +15,7 @@ var (
 	// ErrMissingColumn 缺少列错误
 	ErrMissingColumn = errors.New("missing required column")
 
-	// ErrInvalidColumnType 无效的列类型错误
+	// ErrInvalidColumnType 无效的列类型
 	ErrInvalidColumnType = errors.New("invalid column type")
 
 	// ErrEmptyBatch 空批次错误
@@ -23,4 +23,8 @@ var (
 
 	// ErrEmptySchemaName 空表名错误
 	ErrEmptySchemaName = errors.New("empty schema name")
+
+	// ErrBackpressure indicates Submit could not enqueue a request because the
+	// configured backpressure policy rejected or timed out.
+	ErrBackpressure = errors.New("batchflow backpressure limit reached")
 )
