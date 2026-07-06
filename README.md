@@ -132,8 +132,10 @@ func main() {
 For PostgreSQL/Hologres append-only ingestion, use `CopyFromExecutor`. The root module only depends on the minimal `CopyFromClient` interface. The pgx implementation lives in the optional adapter module:
 
 ```bash
-go get github.com/rushairer/batchflow/adapters/pgxcopy@v2.0.0-rc.2
+go get github.com/rushairer/batchflow/adapters/pgxcopy@v0.1.0-rc.2
 ```
+
+`adapters/pgxcopy` is an independent Go module. In this repository, its Git tag should be `adapters/pgxcopy/v0.1.0-rc.2`, while the root module tag remains `v2.0.0-rc.2`.
 
 ```go
 import (
