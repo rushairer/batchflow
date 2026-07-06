@@ -18,14 +18,15 @@ const (
 type SQLOperationConfig struct {
 	ConflictStrategy ConflictStrategy
 	// ConflictColumns defines the conflict target used by upsert-style writes.
-	// When empty, drivers fall back to the first schema column for backward compatibility.
+	// When empty, PostgreSQL/Hologres ConflictIgnore falls back to plain INSERT.
 	ConflictColumns []string
 	// UpdateColumns limits columns updated by ConflictUpdate. When empty,
 	// drivers update all non-conflict columns.
 	UpdateColumns []string
 	// DeduplicateByConflictColumns controls client-side merge of duplicate
-	// conflict keys before generating SQL. The default is true; use
-	// WithDeduplicateByConflictColumns(false) to disable it.
+	// conflict keys before generating SQL. The default is false for maximum
+	// append-write throughput; enable it explicitly when upsert batches may
+	// contain duplicate conflict keys.
 	DeduplicateByConflictColumns bool
 	deduplicateConfigured        bool
 }
@@ -74,7 +75,7 @@ func (s *SQLSchema) OperationConfig() any {
 
 func (c SQLOperationConfig) withDefaults() SQLOperationConfig {
 	if !c.deduplicateConfigured {
-		c.DeduplicateByConflictColumns = true
+		c.DeduplicateByConflictColumns = false
 	}
 	return c
 }
