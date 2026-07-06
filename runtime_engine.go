@@ -10,9 +10,8 @@ import (
 	"time"
 )
 
-// V3BatchFlow is kept for compatibility with the convergence branch.
-// Deprecated: use V2BatchFlow.
-type V3BatchFlow = RuntimeEngine
+// Flow is the stable public runtime surface for the v2 module.
+type Flow = RuntimeEngine
 
 // RuntimeEngine owns sharding, routing, backpressure and memory protection.
 type RuntimeEngine struct {
@@ -28,12 +27,12 @@ type RuntimeEngine struct {
 	runErr   error
 }
 
-// Deprecated: use NewV2BatchFlow.
-func NewV3BatchFlow(ctx context.Context, cfg V3Config) (*V3BatchFlow, error) {
+// New creates the converged runtime flow.
+func New(ctx context.Context, cfg Config) (*Flow, error) {
 	return NewRuntimeEngine(ctx, cfg)
 }
 
-func NewRuntimeEngine(ctx context.Context, cfg V2Config) (*RuntimeEngine, error) {
+func NewRuntimeEngine(ctx context.Context, cfg Config) (*RuntimeEngine, error) {
 	if cfg.Executor == nil {
 		return nil, &ConfigError{Field: "Executor", Cause: errors.New("must not be nil")}
 	}
