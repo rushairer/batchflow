@@ -45,7 +45,7 @@ func NewRuntimeEngine(ctx context.Context, cfg Config) (*RuntimeEngine, error) {
 
 	engine := &RuntimeEngine{
 		cfg:    runtimeCfg,
-		shards: make([]*BatchFlow, 0, runtimeCfg.ShardCount),
+		shards: make([]*BatchFlow, 0, int(runtimeCfg.ShardCount)),
 		done:   make(chan struct{}),
 	}
 
