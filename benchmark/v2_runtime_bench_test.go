@@ -13,12 +13,12 @@ func (f *fakeExecutor) ExecuteBatch(ctx context.Context, schema batchflow.Schema
 	return nil
 }
 
-func BenchmarkCopyPath(b *testing.B) {
+func BenchmarkRuntimeSubmit(b *testing.B) {
 	ctx := context.Background()
 	exec := &fakeExecutor{}
-	cfg := batchflow.DefaultV2Config(exec)
+	cfg := batchflow.DefaultConfig(exec)
 
-	engine, _ := batchflow.NewV2BatchFlow(ctx, cfg)
+	engine, _ := batchflow.New(ctx, cfg)
 
 	schema := batchflow.NewSQLSchema("t", batchflow.ConflictIgnoreOperationConfig, "a", "b", "c")
 
