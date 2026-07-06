@@ -106,7 +106,7 @@ func (c AdaptiveTuningConfig) withDefaults() AdaptiveTuningConfig {
 	return c
 }
 
-// RuntimeConfig is v2 stable runtime surface.
+// RuntimeConfig contains runtime controls separate from pipeline and executor settings.
 type RuntimeConfig struct {
 	ShardCount   uint32
 	Routing      ShardRoutingPolicy
@@ -134,25 +134,17 @@ func (c RuntimeConfig) withDefaults() RuntimeConfig {
 	return c
 }
 
-// V2Config is stable public API.
-type V2Config struct {
+// Config is the stable public constructor config for the v2 module.
+type Config struct {
 	Pipeline PipelineConfig
 	Runtime  RuntimeConfig
 	Executor BatchExecutor
 }
 
-func DefaultV2Config(executor BatchExecutor) V2Config {
-	return V2Config{
+func DefaultConfig(executor BatchExecutor) Config {
+	return Config{
 		Pipeline: DefaultPipelineConfig(),
 		Runtime:  DefaultRuntimeConfig(),
 		Executor: executor,
 	}
-}
-
-// Deprecated compatibility alias
-// V3Config kept for transitional builds.
-type V3Config = V2Config
-
-func DefaultV3Config(executor BatchExecutor) V3Config {
-	return DefaultV2Config(executor)
 }
