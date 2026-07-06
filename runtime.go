@@ -6,30 +6,24 @@ import "time"
 type ShardRoutingPolicy uint8
 
 const (
-	// ShardRoutingHash keeps rows with the same ShardKeyFunc value on the same shard.
 	ShardRoutingHash ShardRoutingPolicy = iota
-	// ShardRoutingRoundRobin spreads writes evenly without key affinity.
 	ShardRoutingRoundRobin
-	// ShardRoutingLeastLoaded chooses the shard with the shortest current queue.
 	ShardRoutingLeastLoaded
 )
 
-// ShardKeyFunc returns a stable routing key for a request.
+// ShardKeyFunc returns routing key for a request.
 type ShardKeyFunc func(*Request) uint64
 
-// BackpressureMode controls what Submit does when a target queue is above the high watermark.
+// BackpressureMode controls queue pressure behavior.
 type BackpressureMode uint8
 
 const (
-	// BackpressureBlock waits until the target shard falls below the high watermark.
 	BackpressureBlock BackpressureMode = iota
-	// BackpressureReject fails Submit immediately with ErrBackpressure.
 	BackpressureReject
-	// BackpressureTimeout waits up to Timeout, then fails with ErrBackpressure.
 	BackpressureTimeout
 )
 
-// BackpressureConfig protects the process from unbounded queue growth under downstream pressure.
+// BackpressureConfig controls queue pressure.
 type BackpressureConfig struct {
 	Enabled       bool
 	Mode          BackpressureMode
@@ -48,17 +42,80 @@ func (c BackpressureConfig) withDefaults() BackpressureConfig {
 	return c
 }
 
-// RuntimeConfig contains runtime concerns that are intentionally separated from
-// database driver and executor configuration.
+// MemoryLimitConfig provides OOM protection for runtime queue.
+type MemoryLimitConfig struct {
+	Enabled         bool
+	MaxQueueBytes   int64
+	AvgRequestBytes int64
+	Mode            BackpressureMode
+	CheckInterval   time.Duration
+	Timeout         time.Duration
+}
+
+func (c MemoryLimitConfig) withDefaults() MemoryLimitConfig {
+	if c.AvgRequestBytes <= 0 {
+		c.AvgRequestBytes = 512
+	}
+	if c.CheckInterval <= 0 {
+		c.CheckInterval = time.Millisecond
+	}
+	if c.Timeout <= 0 {
+		c.Timeout = time.Second
+	}
+	return c
+}
+
+// AdaptiveTuningConfig controls runtime auto tuning behavior.
+type AdaptiveTuningConfig struct {
+	Enabled bool
+
+	MinFlushSize uint32
+	MaxFlushSize uint32
+
+	MinFlushInterval time.Duration
+	MaxFlushInterval time.Duration
+
+	ScaleUpQueueDepth   int
+	ScaleDownQueueDepth int
+
+	TargetLatency time.Duration
+}
+
+func (c AdaptiveTuningConfig) withDefaults() AdaptiveTuningConfig {
+	if c.MinFlushSize == 0 {
+		c.MinFlushSize = 100
+	}
+	if c.MaxFlushSize == 0 {
+		c.MaxFlushSize = 5000
+	}
+	if c.MinFlushInterval == 0 {
+		c.MinFlushInterval = 10 * time.Millisecond
+	}
+	if c.MaxFlushInterval == 0 {
+		c.MaxFlushInterval = 200 * time.Millisecond
+	}
+	if c.TargetLatency == 0 {
+		c.TargetLatency = 50 * time.Millisecond
+	}
+	return c
+}
+
+// RuntimeConfig is v2 stable runtime surface.
 type RuntimeConfig struct {
 	ShardCount   uint32
 	Routing      ShardRoutingPolicy
 	ShardKeyFunc ShardKeyFunc
+
 	Backpressure BackpressureConfig
+	MemoryLimit  MemoryLimitConfig
+	Adaptive     AdaptiveTuningConfig
 }
 
 func DefaultRuntimeConfig() RuntimeConfig {
-	return RuntimeConfig{ShardCount: 1, Routing: ShardRoutingHash}
+	return RuntimeConfig{
+		ShardCount: 1,
+		Routing:    ShardRoutingHash,
+	}
 }
 
 func (c RuntimeConfig) withDefaults() RuntimeConfig {
@@ -66,11 +123,12 @@ func (c RuntimeConfig) withDefaults() RuntimeConfig {
 		c.ShardCount = 1
 	}
 	c.Backpressure = c.Backpressure.withDefaults()
+	c.MemoryLimit = c.MemoryLimit.withDefaults()
+	c.Adaptive = c.Adaptive.withDefaults()
 	return c
 }
 
-// V2Config is the stable, explicit constructor surface for the converged v2 runtime.
-// The module path remains github.com/rushairer/batchflow/v2.
+// V2Config is stable public API.
 type V2Config struct {
 	Pipeline PipelineConfig
 	Runtime  RuntimeConfig
@@ -85,11 +143,10 @@ func DefaultV2Config(executor BatchExecutor) V2Config {
 	}
 }
 
-// V3Config is kept as a compatibility alias from the pre-release convergence branch.
-// Deprecated: use V2Config.
+// Deprecated compatibility alias
+// V3Config kept for transitional builds.
 type V3Config = V2Config
 
-// Deprecated: use DefaultV2Config.
 func DefaultV3Config(executor BatchExecutor) V3Config {
 	return DefaultV2Config(executor)
 }
