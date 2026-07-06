@@ -94,6 +94,12 @@ func (c AdaptiveTuningConfig) withDefaults() AdaptiveTuningConfig {
 	if c.MaxFlushInterval == 0 {
 		c.MaxFlushInterval = 200 * time.Millisecond
 	}
+	if c.ScaleUpQueueDepth == 0 {
+		c.ScaleUpQueueDepth = 8000
+	}
+	if c.ScaleDownQueueDepth == 0 {
+		c.ScaleDownQueueDepth = 1000
+	}
 	if c.TargetLatency == 0 {
 		c.TargetLatency = 50 * time.Millisecond
 	}
