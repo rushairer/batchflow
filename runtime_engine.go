@@ -10,14 +10,11 @@ import (
 	"time"
 )
 
-// V3BatchFlow is the stable v3 runtime surface. It intentionally wraps the
-// existing v2 BatchFlow shards so the module can evolve without breaking v2
-// callers. A future /v3 module can expose this type as the primary Flow.
+// V3BatchFlow is kept for compatibility with the convergence branch.
+// Deprecated: use V2BatchFlow.
 type V3BatchFlow = RuntimeEngine
 
-// RuntimeEngine owns sharding, routing and backpressure. Database execution
-// remains delegated to BatchExecutor so SQL, COPY and Redis backends share the
-// same runtime semantics.
+// RuntimeEngine owns sharding, routing, backpressure and memory protection.
 type RuntimeEngine struct {
 	cfg    RuntimeConfig
 	shards []*BatchFlow
@@ -31,13 +28,12 @@ type RuntimeEngine struct {
 	runErr   error
 }
 
-// NewV3BatchFlow creates a converged v3-style runtime. It is additive and keeps
-// existing v2 constructors untouched.
+// Deprecated: use NewV2BatchFlow.
 func NewV3BatchFlow(ctx context.Context, cfg V3Config) (*V3BatchFlow, error) {
 	return NewRuntimeEngine(ctx, cfg)
 }
 
-func NewRuntimeEngine(ctx context.Context, cfg V3Config) (*RuntimeEngine, error) {
+func NewRuntimeEngine(ctx context.Context, cfg V2Config) (*RuntimeEngine, error) {
 	if cfg.Executor == nil {
 		return nil, &ConfigError{Field: "Executor", Cause: errors.New("must not be nil")}
 	}
@@ -93,6 +89,9 @@ func (e *RuntimeEngine) Submit(ctx context.Context, req *Request) error {
 		return ErrEmptyRequest
 	}
 	if err := validateRequestForSubmit(req); err != nil {
+		return err
+	}
+	if err := e.waitMemoryLimit(ctx); err != nil {
 		return err
 	}
 
@@ -243,8 +242,6 @@ func (e *RuntimeEngine) waitBackpressure(ctx context.Context, shard int) error {
 	}
 	high := bp.HighWatermark
 	if high <= 0 {
-		// Default to the shard buffer size. This makes backpressure opt-in but
-		// safe even when the caller only flips Enabled=true.
 		high = cap(e.shards[shard].pipeline.DataChan())
 	}
 	if high <= 0 || e.queueDepth(shard) < high {
