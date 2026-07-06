@@ -4,28 +4,51 @@
 
 ## 基线配置
 
+新生产代码推荐使用 clean runtime API：
+
 ```go
-flow := batchflow.NewPostgreSQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:       5000,
-	FlushSize:        200,
-	FlushInterval:    100 * time.Millisecond,
-	Timeout:          2 * time.Second,
-	ConcurrencyLimit: 8,
-	Retry: batchflow.RetryConfig{
+executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultPostgreSQLDriver).
+	WithConcurrencyLimit(8).
+	WithRetryConfig(batchflow.RetryConfig{
 		Enabled:     true,
 		MaxAttempts: 3,
 		BackoffBase: 20 * time.Millisecond,
 		MaxBackoff:  500 * time.Millisecond,
-	},
-	MetricsReporter: reporter,
-	Observability: batchflow.ObservabilityConfig{
-		Logger:             logger,
-		Sampler:            batchflow.NewErrorAndSlowSampler(500 * time.Millisecond),
-		Redactor:           batchflow.DefaultRedactor(),
-		SlowBatchThreshold: 500 * time.Millisecond,
-	},
-})
+	})
+
+cfg := batchflow.DefaultConfig(executor)
+cfg.Pipeline.BufferSize = 10000
+cfg.Pipeline.FlushSize = 1000
+cfg.Pipeline.FlushInterval = 50 * time.Millisecond
+cfg.Pipeline.Timeout = 2 * time.Second
+cfg.Pipeline.MetricsReporter = reporter
+cfg.Pipeline.Observability = batchflow.ObservabilityConfig{
+	Logger:             logger,
+	Sampler:            batchflow.NewErrorAndSlowSampler(500 * time.Millisecond),
+	Redactor:           batchflow.DefaultRedactor(),
+	SlowBatchThreshold: 500 * time.Millisecond,
+}
+
+cfg.Runtime.ShardCount = 4
+cfg.Runtime.Routing = batchflow.ShardRoutingHash
+cfg.Runtime.Backpressure = batchflow.BackpressureConfig{
+	Enabled:       true,
+	Mode:          batchflow.BackpressureTimeout,
+	HighWatermark: 8000,
+	Timeout:       500 * time.Millisecond,
+}
+cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
+	Enabled:         true,
+	MaxQueueBytes:   512 << 20,
+	AvgRequestBytes: 512,
+	Mode:            batchflow.BackpressureTimeout,
+	Timeout:         500 * time.Millisecond,
+}
+
+flow, err := batchflow.New(ctx, cfg)
 ```
+
+旧便捷构造器仍可用于简单迁移，但新生产代码建议显式配置 runtime 控制层。
 
 ## 数据库连接池
 
@@ -38,7 +61,49 @@ db.SetConnMaxLifetime(time.Hour)
 db.SetConnMaxIdleTime(10 * time.Minute)
 ```
 
-`ConcurrencyLimit` 应低于数据库连接池和后端真实写入能力。
+执行器并发和 runtime 分片数量都应低于数据库连接池和后端真实写入能力。
+
+## COPY FROM / Hologres
+
+append-only PostgreSQL/Hologres 写入推荐 COPY path：
+
+```go
+copyExecutor := pgxcopy.NewExecutor(pool)
+
+cfg := batchflow.DefaultConfig(copyExecutor)
+cfg.Pipeline.BufferSize = 50000
+cfg.Pipeline.FlushSize = 5000
+cfg.Pipeline.FlushInterval = 20 * time.Millisecond
+cfg.Runtime.ShardCount = 8
+cfg.Runtime.Backpressure = batchflow.BackpressureConfig{
+	Enabled:       true,
+	Mode:          batchflow.BackpressureTimeout,
+	HighWatermark: 40000,
+	Timeout:       time.Second,
+}
+cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
+	Enabled:         true,
+	MaxQueueBytes:   1 << 30,
+	AvgRequestBytes: 512,
+	Mode:            batchflow.BackpressureTimeout,
+	Timeout:         time.Second,
+}
+```
+
+COPY FROM 只支持 append-only。需要 upsert/update/replace 时使用 SQL executor。
+
+## 背压和内存保护
+
+生产环境建议同时启用：
+
+- `BackpressureConfig`：保护每个 shard 的队列深度。
+- `MemoryLimitConfig`：保护全局估算队列内存。
+
+推荐：
+
+- 在线 API：`BackpressureReject`，让上游快速重试。
+- Worker/服务写入：`BackpressureTimeout`，短暂下游抖动可恢复。
+- 离线任务：可使用 `BackpressureBlock`，但要接受阻塞。
 
 ## SQL 上线检查
 
@@ -57,11 +122,15 @@ HTTP、文档库、消息队列、自定义 API 推荐：
 
 ## 上线清单
 
+- [ ] 新生产代码使用 `DefaultConfig(executor)` + `New(ctx, cfg)`。
 - [ ] shutdown 时调用 `Close()`。
 - [ ] 消费或明确忽略 `ErrorChan`。
 - [ ] 配置 `MetricsReporter`。
 - [ ] `ObservabilityConfig` 已脱敏敏感字段。
+- [ ] 已配置 runtime backpressure。
+- [ ] 已配置 runtime memory limit。
 - [ ] SQL update/replace 已显式配置 `ConflictColumns`。
 - [ ] PostgreSQL/MySQL 写入路径已用 `GenerateSQLPreview` 检查。
 - [ ] 重试策略使用低基数 reason label。
 - [ ] 目标后端 Docker 集成/压力测试已通过。
+- [ ] 如使用 COPY FROM，已验证 `adapters/pgxcopy`。
