@@ -2,40 +2,82 @@
 
 This guide keeps examples aligned with compiled repository code and the `github.com/rushairer/batchflow/v2` module path.
 
+## Recommended runtime entrypoint
+
+New production code should use `DefaultConfig(executor)` plus `New(ctx, cfg)`.
+
+```go
+executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver).
+    WithConcurrencyLimit(8)
+
+cfg := batchflow.DefaultConfig(executor)
+cfg.Pipeline.BufferSize = 10000
+cfg.Pipeline.FlushSize = 1000
+cfg.Pipeline.FlushInterval = 50 * time.Millisecond
+cfg.Runtime.ShardCount = 4
+cfg.Runtime.Backpressure = batchflow.BackpressureConfig{
+    Enabled: true,
+    Mode: batchflow.BackpressureTimeout,
+    HighWatermark: 8000,
+    Timeout: 500 * time.Millisecond,
+}
+cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
+    Enabled: true,
+    MaxQueueBytes: 512 << 20,
+    AvgRequestBytes: 512,
+    Mode: batchflow.BackpressureTimeout,
+    Timeout: 500 * time.Millisecond,
+}
+
+flow, err := batchflow.New(ctx, cfg)
+if err != nil {
+    return err
+}
+defer flow.Close()
+```
+
+Legacy convenience constructors such as `NewMySQLBatchFlow` remain available for quick migrations, but they do not expose the full runtime controls in one place.
+
 ## MySQL
 
 ```go
 db, err := sql.Open("mysql", dsn)
 if err != nil {
-	return err
+    return err
 }
 defer db.Close()
 
-flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:       5000,
-	FlushSize:        200,
-	FlushInterval:    100 * time.Millisecond,
-	ConcurrencyLimit: 8,
-})
+executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver).
+    WithConcurrencyLimit(8)
+
+cfg := batchflow.DefaultConfig(executor)
+cfg.Pipeline.BufferSize = 5000
+cfg.Pipeline.FlushSize = 200
+cfg.Pipeline.FlushInterval = 100 * time.Millisecond
+
+flow, err := batchflow.New(ctx, cfg)
+if err != nil {
+    return err
+}
 defer flow.Close()
 
 schema := batchflow.NewSQLSchema(
-	"users",
-	batchflow.ConflictUpdateOperationConfig.
-		WithConflictColumns("id").
-		WithUpdateColumns("name", "email"),
-	"id", "name", "email",
+    "users",
+    batchflow.ConflictUpdateOperationConfig.
+        WithConflictColumns("id").
+        WithUpdateColumns("name", "email"),
+    "id", "name", "email",
 )
 
 for i := 0; i < 1000; i++ {
-	req := batchflow.NewRequest(schema).
-		SetUint64("id", uint64(i)).
-		SetString("name", fmt.Sprintf("user_%d", i)).
-		SetString("email", fmt.Sprintf("user_%d@example.com", i))
+    req := batchflow.NewRequest(schema).
+        SetUint64("id", uint64(i)).
+        SetString("name", fmt.Sprintf("user_%d", i)).
+        SetString("email", fmt.Sprintf("user_%d@example.com", i))
 
-	if err := flow.Submit(ctx, req); err != nil {
-		return err
-	}
+    if err := flow.Submit(ctx, req); err != nil {
+        return err
+    }
 }
 ```
 
@@ -45,21 +87,21 @@ PostgreSQL code should declare conflict keys explicitly. `ConflictUpdate` update
 
 ```go
 schema := batchflow.NewSQLSchema(
-	"users",
-	batchflow.ConflictUpdateOperationConfig.
-		WithConflictColumns("id").
-		WithUpdateColumns("name", "email"),
-	"id", "name", "email", "updated_at",
+    "users",
+    batchflow.ConflictUpdateOperationConfig.
+        WithConflictColumns("id").
+        WithUpdateColumns("name", "email"),
+    "id", "name", "email", "updated_at",
 )
 
 req := batchflow.NewRequest(schema).
-	SetInt64("id", 42).
-	SetString("name", "alice").
-	SetString("email", "alice@example.com").
-	SetTime("updated_at", time.Now().UTC())
+    SetInt64("id", 42).
+    SetString("name", "alice").
+    SetString("email", "alice@example.com").
+    SetTime("updated_at", time.Now().UTC())
 
 if err := flow.Submit(ctx, req); err != nil {
-	return err
+    return err
 }
 ```
 
@@ -70,15 +112,55 @@ INSERT INTO users (...) VALUES (...)
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email
 ```
 
+## PostgreSQL / Hologres COPY FROM
+
+Use COPY FROM for append-only high-throughput ingestion.
+
+```go
+import (
+    batchflow "github.com/rushairer/batchflow/v2"
+    "github.com/rushairer/batchflow/adapters/pgxcopy"
+)
+
+copyExecutor := pgxcopy.NewExecutor(pool)
+
+cfg := batchflow.DefaultConfig(copyExecutor)
+cfg.Pipeline.BufferSize = 50000
+cfg.Pipeline.FlushSize = 5000
+cfg.Pipeline.FlushInterval = 20 * time.Millisecond
+cfg.Runtime.ShardCount = 8
+cfg.Runtime.Backpressure = batchflow.BackpressureConfig{
+    Enabled: true,
+    Mode: batchflow.BackpressureTimeout,
+    HighWatermark: 40000,
+    Timeout: time.Second,
+}
+cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
+    Enabled: true,
+    MaxQueueBytes: 1 << 30,
+    AvgRequestBytes: 512,
+    Mode: batchflow.BackpressureTimeout,
+    Timeout: time.Second,
+}
+
+flow, err := batchflow.New(ctx, cfg)
+if err != nil {
+    return err
+}
+defer flow.Close()
+```
+
+COPY FROM only supports append-only schemas. If the SQL schema uses update/replace conflict behavior, use the SQL executor path instead.
+
 ## PostgreSQL Upsert Replace
 
 PostgreSQL does not have MySQL `REPLACE INTO` delete-plus-insert semantics. BatchFlow defines `ConflictReplace` as upsert overwrite: update all non-conflict columns on conflict.
 
 ```go
 schema := batchflow.NewSQLSchema(
-	"users",
-	batchflow.ConflictReplaceOperationConfig.WithConflictColumns("id"),
-	"id", "name", "email", "updated_at",
+    "users",
+    batchflow.ConflictReplaceOperationConfig.WithConflictColumns("id"),
+    "id", "name", "email", "updated_at",
 )
 ```
 
@@ -95,10 +177,10 @@ Duplicate conflict keys inside one batch are coalesced before SQL generation, av
 
 ```go
 schema := batchflow.NewSQLSchema(
-	"user_profiles",
-	batchflow.ConflictUpdateOperationConfig.
-		WithConflictColumns("tenant_id", "user_id"),
-	"tenant_id", "user_id", "display_name", "avatar_url",
+    "user_profiles",
+    batchflow.ConflictUpdateOperationConfig.
+        WithConflictColumns("tenant_id", "user_id"),
+    "tenant_id", "user_id", "display_name", "avatar_url",
 )
 ```
 
@@ -114,11 +196,11 @@ MySQL `ConflictUpdate` uses `ON DUPLICATE KEY UPDATE`. Configure `ConflictColumn
 
 ```go
 schema := batchflow.NewSQLSchema(
-	"users",
-	batchflow.ConflictUpdateOperationConfig.
-		WithConflictColumns("id").
-		WithUpdateColumns("name", "email"),
-	"id", "name", "email", "updated_at",
+    "users",
+    batchflow.ConflictUpdateOperationConfig.
+        WithConflictColumns("id").
+        WithUpdateColumns("name", "email"),
+    "id", "name", "email", "updated_at",
 )
 ```
 
@@ -133,9 +215,9 @@ MySQL `ConflictReplace` keeps native `REPLACE INTO` behavior:
 
 ```go
 schema := batchflow.NewSQLSchema(
-	"users",
-	batchflow.ConflictReplaceOperationConfig.WithConflictColumns("id"),
-	"id", "name", "email",
+    "users",
+    batchflow.ConflictReplaceOperationConfig.WithConflictColumns("id"),
+    "id", "name", "email",
 )
 ```
 
@@ -144,44 +226,47 @@ schema := batchflow.NewSQLSchema(
 ```go
 preview, err := batchflow.GenerateSQLPreview(ctx, batchflow.DefaultPostgreSQLDriver, schema, rows)
 if err != nil {
-	return err
+    return err
 }
 
 log.Printf("table=%s fingerprint=%s args=%d conflict=%v update=%v input=%d output=%d dedup=%d",
-	preview.Table,
-	preview.Fingerprint,
-	preview.ArgsCount,
-	preview.ConflictColumns,
-	preview.UpdateColumns,
-	preview.DedupStats.InputRows,
-	preview.DedupStats.OutputRows,
-	preview.DedupStats.DeduplicatedRows,
+    preview.Table,
+    preview.Fingerprint,
+    preview.ArgsCount,
+    preview.ConflictColumns,
+    preview.UpdateColumns,
+    preview.DedupStats.InputRows,
+    preview.DedupStats.OutputRows,
+    preview.DedupStats.DeduplicatedRows,
 )
 ```
 
 ## Redis
 
 ```go
-rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-defer rdb.Close()
+executor := batchflow.NewRedisThrottledBatchExecutor(rdb)
 
-flow := batchflow.NewRedisBatchFlow(ctx, rdb, batchflow.PipelineConfig{
-	BufferSize:    5000,
-	FlushSize:     500,
-	FlushInterval: 50 * time.Millisecond,
-})
+cfg := batchflow.DefaultConfig(executor)
+cfg.Pipeline.BufferSize = 5000
+cfg.Pipeline.FlushSize = 500
+cfg.Pipeline.FlushInterval = 50 * time.Millisecond
+
+flow, err := batchflow.New(ctx, cfg)
+if err != nil {
+    return err
+}
 defer flow.Close()
 
 schema := batchflow.NewSchema("cache", "cmd", "key", "ttl", "value")
 
 req := batchflow.NewRequest(schema).
-	SetString("cmd", "SETEX").
-	SetString("key", "user:1").
-	SetInt64("ttl", 3600).
-	SetString("value", `{"name":"alice"}`)
+    SetString("cmd", "SETEX").
+    SetString("key", "user:1").
+    SetInt64("ttl", 3600).
+    SetString("value", `{"name":"alice"}`)
 
 if err := flow.Submit(ctx, req); err != nil {
-	return err
+    return err
 }
 ```
 
@@ -190,13 +275,7 @@ if err := flow.Submit(ctx, req); err != nil {
 Redis, HTTP, MongoDB, queue, and custom API backends can explicitly enable duplicate-key handling through `PipelineConfig.Coalescer`:
 
 ```go
-flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
-	BufferSize:    1000,
-	FlushSize:     100,
-	FlushInterval: 100 * time.Millisecond,
-	Coalescer:     batchflow.NewKeyCoalescer(batchflow.CoalesceKeepLast, "key"),
-})
-defer flow.Close()
+cfg.Pipeline.Coalescer = batchflow.NewKeyCoalescer(batchflow.CoalesceKeepLast, "key")
 ```
 
 Available strategies:
@@ -213,10 +292,18 @@ SQL update/replace does not need `PipelineConfig.Coalescer`; SQL conflict strate
 type MyExecutor struct{}
 
 func (e *MyExecutor) ExecuteBatch(ctx context.Context, schema batchflow.SchemaInterface, data []map[string]any) error {
-	return nil
+    return nil
 }
 
-flow := batchflow.NewBatchFlow(ctx, 1000, 100, 100*time.Millisecond, &MyExecutor{})
+cfg := batchflow.DefaultConfig(&MyExecutor{})
+cfg.Pipeline.BufferSize = 1000
+cfg.Pipeline.FlushSize = 100
+cfg.Pipeline.FlushInterval = 100 * time.Millisecond
+
+flow, err := batchflow.New(ctx, cfg)
+if err != nil {
+    return err
+}
 defer flow.Close()
 ```
 
@@ -232,19 +319,16 @@ Compiled examples:
 ## Retry and Concurrency Limit
 
 ```go
-flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:       5000,
-	FlushSize:        200,
-	FlushInterval:    100 * time.Millisecond,
-	ConcurrencyLimit: 8,
-	Retry: batchflow.RetryConfig{
-		Enabled:     true,
-		MaxAttempts: 3,
-		BackoffBase: 20 * time.Millisecond,
-		MaxBackoff:  500 * time.Millisecond,
-	},
-})
-defer flow.Close()
+executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver).
+    WithConcurrencyLimit(8).
+    WithRetryConfig(batchflow.RetryConfig{
+        Enabled: true,
+        MaxAttempts: 3,
+        BackoffBase: 20 * time.Millisecond,
+        MaxBackoff: 500 * time.Millisecond,
+    })
+
+cfg := batchflow.DefaultConfig(executor)
 ```
 
 ## Metrics
@@ -253,25 +337,19 @@ defer flow.Close()
 import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
 
 metrics := prommetrics.NewMetrics(prommetrics.Options{
-	Namespace:             "batchflow",
-	IncludeInstanceID:     true,
-	EnablePipelineMetrics: true,
+    Namespace: "batchflow",
+    IncludeInstanceID: true,
+    EnablePipelineMetrics: true,
 })
 
 if err := metrics.StartServer(2112); err != nil {
-	return err
+    return err
 }
 defer metrics.StopServer(context.Background())
 
 reporter := prommetrics.NewReporter(metrics, "mysql", "order_writer")
 
-flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	BufferSize:      5000,
-	FlushSize:       200,
-	FlushInterval:   100 * time.Millisecond,
-	MetricsReporter: reporter,
-})
-defer flow.Close()
+cfg.Pipeline.MetricsReporter = reporter
 ```
 
 ## Async Errors
@@ -279,9 +357,9 @@ defer flow.Close()
 ```go
 errs := flow.ErrorChan(64)
 go func() {
-	for err := range errs {
-		log.Printf("async batch error: %v", err)
-	}
+    for err := range errs {
+        log.Printf("async batch error: %v", err)
+    }
 }()
 ```
 
@@ -289,7 +367,7 @@ go func() {
 
 ```go
 if err := flow.Close(); err != nil {
-	return err
+    return err
 }
 ```
 

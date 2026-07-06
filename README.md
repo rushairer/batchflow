@@ -5,27 +5,47 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/rushairer/batchflow/v2)](https://goreportcard.com/report/github.com/rushairer/batchflow/v2)
 [![License](https://img.shields.io/github/license/rushairer/batchflow)](https://github.com/rushairer/batchflow/blob/main/LICENSE)
 
-BatchFlow is a Go batch-processing framework built on [go-pipeline](https://github.com/rushairer/go-pipeline). It provides one ingestion model for SQL databases, Redis, and custom batch sinks: collect records, flush asynchronously, execute with optional retry/concurrency control, and expose metrics plus safe diagnostics.
+BatchFlow is a Go ingestion runtime built on [go-pipeline](https://github.com/rushairer/go-pipeline). It provides one batching model for SQL databases, Redis, PostgreSQL/Hologres COPY FROM, and custom batch sinks: enqueue records, flush asynchronously, execute through pluggable backends, apply retry/concurrency controls, and expose production diagnostics.
 
 Chinese documentation: [README.zh-CN.md](README.zh-CN.md).
 
+## Current RC2 API
+
+The public module path is:
+
+```text
+github.com/rushairer/batchflow/v2
+```
+
+Because v2 has not been formally released yet, the public runtime API intentionally uses clean names instead of version-decorated names:
+
+```go
+cfg := batchflow.DefaultConfig(executor)
+flow, err := batchflow.New(ctx, cfg)
+```
+
+Versioning lives in the module path and release tag, not in type or function names.
+
 ## Features
 
-- Unified API for MySQL, PostgreSQL, SQLite, Redis, and custom `BatchExecutor` implementations.
-- Async batching through `FlushSize` and `FlushInterval`.
+- Clean runtime API: `Config`, `RuntimeConfig`, `Flow`, `DefaultConfig`, and `New`.
+- Unified executor model for SQL, Redis, COPY FROM, and custom `BatchExecutor` implementations.
+- Runtime sharding with hash, round-robin, and least-loaded routing.
+- Runtime backpressure with block, reject, and timeout modes.
+- Estimated queue memory limiter for OOM protection.
+- Adaptive tuning policy engine for flush-size and latency recommendations.
 - SQL upsert controls for explicit conflict keys, update columns, and in-batch duplicate-key coalescing.
-- Generic `Coalescer` support for non-SQL and DIY data flows.
-- Retry, timeout, concurrency limit, structured error classification, and optional observability hooks.
-- Prometheus-ready metrics examples, SQL dry-run previews, and Docker integration/stress test tooling.
+- PostgreSQL/Hologres COPY FROM fast path through `CopyFromExecutor` and optional `adapters/pgxcopy`.
+- Retry, timeout, concurrency limit, structured error classification, metrics, and safe diagnostics.
 - Complete lifecycle controls with `Close()`, `Wait()`, and `Done()`.
 
 ## Install
 
 ```bash
-go get github.com/rushairer/batchflow/v2
+go get github.com/rushairer/batchflow/v2@v2.0.0-rc.2
 ```
 
-## Quick Start
+## Quick Start: SQL runtime
 
 ```go
 package main
@@ -37,8 +57,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-
-	"github.com/rushairer/batchflow/v2"
+	batchflow "github.com/rushairer/batchflow/v2"
 )
 
 func main() {
@@ -50,19 +69,39 @@ func main() {
 	}
 	defer db.Close()
 
-	flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-		BufferSize:       1000,
-		FlushSize:        200,
-		FlushInterval:    100 * time.Millisecond,
-		Timeout:          500 * time.Millisecond,
-		ConcurrencyLimit: 8,
-		Retry: batchflow.RetryConfig{
+	executor := batchflow.NewSQLThrottledBatchExecutorWithDriver(db, batchflow.DefaultMySQLDriver).
+		WithConcurrencyLimit(8).
+		WithRetryConfig(batchflow.RetryConfig{
 			Enabled:     true,
 			MaxAttempts: 3,
 			BackoffBase: 20 * time.Millisecond,
 			MaxBackoff:  500 * time.Millisecond,
-		},
-	})
+		})
+
+	cfg := batchflow.DefaultConfig(executor)
+	cfg.Pipeline.BufferSize = 10000
+	cfg.Pipeline.FlushSize = 1000
+	cfg.Pipeline.FlushInterval = 50 * time.Millisecond
+	cfg.Runtime.ShardCount = 4
+	cfg.Runtime.Routing = batchflow.ShardRoutingHash
+	cfg.Runtime.Backpressure = batchflow.BackpressureConfig{
+		Enabled:       true,
+		Mode:          batchflow.BackpressureTimeout,
+		HighWatermark: 8000,
+		Timeout:       500 * time.Millisecond,
+	}
+	cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
+		Enabled:         true,
+		MaxQueueBytes:   512 << 20,
+		AvgRequestBytes: 512,
+		Mode:            batchflow.BackpressureTimeout,
+		Timeout:         500 * time.Millisecond,
+	}
+
+	flow, err := batchflow.New(ctx, cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer func() {
 		if err := flow.Close(); err != nil {
 			log.Printf("batchflow close: %v", err)
@@ -85,25 +124,58 @@ func main() {
 	if err := flow.Submit(ctx, req); err != nil {
 		log.Fatal(err)
 	}
-
-	errs := flow.ErrorChan(32)
-	go func() {
-		for err := range errs {
-			log.Printf("batchflow async error: %v", err)
-		}
-	}()
 }
 ```
+
+## COPY FROM fast path
+
+For PostgreSQL/Hologres append-only ingestion, use `CopyFromExecutor`. The root module only depends on the minimal `CopyFromClient` interface. The pgx implementation lives in the optional adapter module:
+
+```bash
+go get github.com/rushairer/batchflow/adapters/pgxcopy@v2.0.0-rc.2
+```
+
+```go
+import (
+	batchflow "github.com/rushairer/batchflow/v2"
+	"github.com/rushairer/batchflow/adapters/pgxcopy"
+)
+
+copyExecutor := pgxcopy.NewExecutor(pool)
+
+cfg := batchflow.DefaultConfig(copyExecutor)
+cfg.Pipeline.BufferSize = 50000
+cfg.Pipeline.FlushSize = 5000
+cfg.Pipeline.FlushInterval = 20 * time.Millisecond
+cfg.Runtime.ShardCount = 8
+cfg.Runtime.Backpressure = batchflow.BackpressureConfig{
+	Enabled:       true,
+	Mode:          batchflow.BackpressureTimeout,
+	HighWatermark: 40000,
+	Timeout:       time.Second,
+}
+cfg.Runtime.MemoryLimit = batchflow.MemoryLimitConfig{
+	Enabled:         true,
+	MaxQueueBytes:   1 << 30,
+	AvgRequestBytes: 512,
+	Mode:            batchflow.BackpressureTimeout,
+	Timeout:         time.Second,
+}
+
+flow, err := batchflow.New(ctx, cfg)
+```
+
+COPY FROM is intentionally limited to append-only schemas. Upsert/update/replace flows should use the SQL executor path.
 
 ## Core Semantics
 
 ### Lifecycle
 
-- `NewXxxBatchFlow(...)` starts the background pipeline immediately.
-- `Submit(ctx, req)` only enqueues data. It returns an error when the caller context is canceled or the flow is already closed.
-- `Close()` stops accepting new records, closes the input channel, triggers the final flush, and waits for shutdown.
+- `New(ctx, cfg)` starts the runtime immediately.
+- `Submit(ctx, req)` enqueues data and may reject/block/timeout according to runtime backpressure and memory limits.
+- `Close()` stops accepting new records, closes input, triggers final flush, and waits for shutdown.
 - `Wait()` waits for shutdown without closing input.
-- `Done()` returns a read-only channel closed when the background pipeline exits.
+- `Done()` returns a read-only channel closed when the background runtime exits.
 
 Always call `Close()` during application shutdown:
 
@@ -175,50 +247,19 @@ log.Printf("sql=%s fingerprint=%s args=%d input=%d output=%d dedup=%d",
 
 Do not log `preview.Args` in production unless the values are known to be safe.
 
-## Non-SQL and Custom Flows
+## Legacy convenience constructors
 
-For Redis, HTTP, document stores, queues, or any custom sink, use `PipelineConfig.Coalescer` when duplicate keys should be merged before execution:
+Legacy constructors remain available for simple migrations and quick tests:
 
 ```go
-flow := batchflow.NewRedisBatchFlow(ctx, redisClient, batchflow.PipelineConfig{
+flow := batchflow.NewMySQLBatchFlow(ctx, db, batchflow.PipelineConfig{
 	BufferSize:    1000,
-	FlushSize:     100,
+	FlushSize:     200,
 	FlushInterval: 100 * time.Millisecond,
-	Coalescer:     batchflow.NewKeyCoalescer(batchflow.CoalesceKeepLast, "key"),
-})
-defer flow.Close()
-```
-
-For reusable custom sinks, implement `BatchProcessor` and optionally `OperationPreviewer`, then wrap it with `NewThrottledBatchExecutor` to reuse retry, concurrency limit, metrics, and structured logging.
-
-## Observability
-
-BatchFlow exposes three metrics layers:
-
-- `MetricsReporter`: executor and core execution metrics.
-- `PipelineMetricsReporter`: queue wait, pipeline processing latency, dropped async errors.
-- `BatchFlowMetricsReporter`: rejected submits, flush input size, schema groups per flush.
-
-Prometheus example package:
-
-```go
-import prommetrics "github.com/rushairer/batchflow/v2/examples/metrics/prometheus"
-```
-
-Structured diagnostics can be configured with `ObservabilityConfig`:
-
-```go
-flow := batchflow.NewPostgreSQLBatchFlow(ctx, db, batchflow.PipelineConfig{
-	Observability: batchflow.ObservabilityConfig{
-		Logger:             logger,
-		Sampler:            batchflow.NewErrorAndSlowSampler(500 * time.Millisecond),
-		Redactor:           batchflow.DefaultRedactor(),
-		SlowBatchThreshold: 500 * time.Millisecond,
-	},
 })
 ```
 
-Built-in error classification recognizes structured PostgreSQL SQLSTATE, MySQL error numbers, Redis errors, context cancellation, timeouts, and connection classes. Custom backends can register classifiers with `RegisterErrorClassifier`.
+For new production code, prefer `DefaultConfig(executor)` plus `New(ctx, cfg)` so runtime sharding, memory limiter, and backpressure are explicit.
 
 ## Documentation
 
@@ -227,6 +268,8 @@ Built-in error classification recognizes structured PostgreSQL SQLSTATE, MySQL e
 - [Configuration](docs/api/configuration.md)
 - [Examples](docs/guides/examples.md)
 - [Production guide](docs/guides/production.md)
+- [Production tuning guide](docs/v2-production-tuning.md)
+- [RC2 release notes](docs/releases/v2.0.0-rc.2.md)
 - [Testing guide](docs/guides/testing.md)
 - [Error classification](docs/guides/error-classification.md)
 - [Monitoring quickstart](docs/guides/monitoring-quickstart.md)
@@ -242,22 +285,11 @@ make lint
 make docs-check
 ```
 
-Docker stress tests:
+Release validation:
 
 ```bash
-make docker-postgres-test
-make docker-mysql-test
-make docker-redis-test
+go test ./...
+go test ./... -race
+go test ./benchmark -bench=. -benchmem
+cd adapters/pgxcopy && go test ./...
 ```
-
-Generate a stress report:
-
-```bash
-./scripts/run_stress_report.sh
-```
-
-## Community and Security
-
-- [Contributing guide](CONTRIBUTING.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
-- [Security policy](SECURITY.md)
