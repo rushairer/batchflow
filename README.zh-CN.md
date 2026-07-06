@@ -106,8 +106,10 @@ if err := flow.Submit(ctx, req); err != nil {
 PostgreSQL/Hologres append-only 写入推荐使用 COPY 路径。根模块只依赖 `CopyFromClient` 最小接口，pgx 实现放在可选 adapter 中：
 
 ```bash
-go get github.com/rushairer/batchflow/adapters/pgxcopy@v2.0.0-rc.2
+go get github.com/rushairer/batchflow/adapters/pgxcopy@v0.1.0-rc.2
 ```
+
+`adapters/pgxcopy` 是独立 Go module。这个仓库里它对应的 Git tag 应为 `adapters/pgxcopy/v0.1.0-rc.2`，根模块 tag 仍是 `v2.0.0-rc.2`。
 
 ```go
 copyExecutor := pgxcopy.NewExecutor(pool)
