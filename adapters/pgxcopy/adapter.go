@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	batchflow "github.com/rushairer/batchflow/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	batchflow "github.com/rushairer/batchflow/v2"
 )
 
 // PoolAdapter adapts pgxpool.Pool to batchflow.CopyFromClient.

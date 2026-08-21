@@ -4,9 +4,9 @@ import "time"
 
 // TuningSignal is runtime feedback from engine.
 type TuningSignal struct {
-	LatencyAvg   time.Duration
-	QueueDepth   int
-	ErrorRate    float64
+	LatencyAvg    time.Duration
+	QueueDepth    int
+	ErrorRate     float64
 	ThroughputRPS float64
 }
 
